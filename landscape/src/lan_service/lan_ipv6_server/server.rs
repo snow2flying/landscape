@@ -381,6 +381,18 @@ pub async fn start_ipv6_lan_server(
     {
         let mut status = share_status.lock().await;
         status.update_prefix(&initial_subnets);
+
+        let static_macs: Vec<MacAddr> = status.na_static_by_mac.keys().cloned().collect();
+        for mac in &static_macs {
+            let ips = status.all_ips_for_mac(mac);
+            let device_id = device_id_map.get(mac).map(|r| *r.value());
+            let _ = ipv6_assign_sender.try_send(IPv6AssignEvent::Flush(IPv6AssignInfo {
+                iface_name: iface_name.clone(),
+                mac: *mac,
+                ips,
+                device_id,
+            }));
+        }
     }
 
     // System I/O for subnets (outside lock)

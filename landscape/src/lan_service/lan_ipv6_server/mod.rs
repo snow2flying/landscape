@@ -1084,6 +1084,10 @@ impl Ipv6ServerStatus {
     pub fn all_ips_for_mac(&self, mac: &MacAddr) -> Vec<Ipv6Addr> {
         let mut ips = Vec::new();
 
+        if let Some(&suffix) = self.na_static_by_mac.get(mac) {
+            ips.extend(self.suffix_to_addrs(suffix));
+        }
+
         for lease in self.na_leases_by_duid.values() {
             if lease.mac == *mac {
                 ips.extend(self.suffix_to_addrs(lease.suffix));
