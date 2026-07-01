@@ -333,9 +333,8 @@ function rangeForSelection(
   if (!unitSpan) {
     return undefined;
   }
-  const reservedOffset = reservedBlockOffsetForPrefix(poolLen);
-  const effectiveStart = startIndex + reservedOffset;
-  const effectiveEnd = endIndex + reservedOffset;
+  const effectiveStart = startIndex;
+  const effectiveEnd = endIndex;
   return {
     unitStart: effectiveStart * unitSpan,
     unitEnd: (effectiveEnd + 1) * unitSpan,

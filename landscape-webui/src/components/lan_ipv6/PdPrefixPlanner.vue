@@ -249,6 +249,9 @@ function selectedFillColor(unit: PlannerUnit) {
 }
 
 function labelsForUnit(unit: PlannerUnit) {
+  if (unit.isWanReserved) {
+    return "";
+  }
   const labels = new Set<string>();
   if (unit.occupiedByRa) {
     labels.add("R");

@@ -452,7 +452,7 @@ export function poolIndexFromPlannerUnitStart(
   if (effectiveIndex < reservedSlots) {
     return undefined;
   }
-  return Math.max(0, effectiveIndex - reservedSlots);
+  return effectiveIndex;
 }
 
 function plannerParentFromGroup(
@@ -645,10 +645,9 @@ function entryReservedUnitCount(entry: GroupPlannerEntry): number {
 }
 
 function entryEffectiveIndexRange(entry: GroupPlannerEntry) {
-  const offset = entryReservedBlockOffset(entry);
   return {
-    startIndex: entry.startIndex + offset,
-    endIndex: entry.endIndex + offset,
+    startIndex: entry.startIndex,
+    endIndex: entry.endIndex,
   };
 }
 

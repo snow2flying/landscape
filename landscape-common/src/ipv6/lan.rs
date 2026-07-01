@@ -525,16 +525,6 @@ fn blocks_overlap(_parent_prefix_len: u8, idx_a: u64, len_a: u8, idx_b: u64, len
     start_a < end_b && start_b < end_a
 }
 
-fn reserved_wan_slots(pool_len: u8) -> u64 {
-    // Dynamic sources skip the first child block for WAN use.
-    // When the target is more specific than /64, reserve the first /64 worth of slots.
-    if pool_len <= 64 {
-        1
-    } else {
-        1u64.checked_shl((pool_len - 64) as u32).unwrap_or(u64::MAX)
-    }
-}
-
 fn range_blocks_overlap(start_a: u64, end_a: u64, start_b: u64, end_b: u64) -> bool {
     start_a <= end_b && start_b <= end_a
 }
@@ -554,15 +544,10 @@ impl ExpandedPrefixEntry {
         matches!(self.parent, ExpandedParentKey::PdActual(..) | ExpandedParentKey::PdFallback(..))
     }
 
-    pub fn effective_index_range(&self, is_dynamic: bool) -> (u64, u64) {
+    pub fn effective_index_range(&self, _is_dynamic: bool) -> (u64, u64) {
         let start = self.start_index as u64;
         let end = self.end_index as u64;
-        if is_dynamic {
-            let offset = reserved_wan_slots(self.pool_len);
-            (start.saturating_add(offset), end.saturating_add(offset))
-        } else {
-            (start, end)
-        }
+        (start, end)
     }
 }
 
@@ -621,7 +606,16 @@ impl LanPrefixGroupConfig {
         }
 
         let parent_len = self.parent.resolved_parent_prefix_len(prefix_infos);
+        let is_pd_parent = matches!(self.parent, PrefixParentSource::Pd { .. });
         if let Some(ra) = &self.ra {
+            if is_pd_parent && ra.pool_index == 0 {
+                return Err(ServiceConfigError::InvalidConfig {
+                    reason: format!(
+                        "RA pool_index ({}) must be >= 1 when parent is PD-derived (subnet 0 is reserved for WAN)",
+                        ra.pool_index
+                    ),
+                });
+            }
             if 64 <= parent_len {
                 return Err(ServiceConfigError::InvalidConfig {
                     reason: format!(
@@ -637,6 +631,14 @@ impl LanPrefixGroupConfig {
             }
         }
         if let Some(na) = &self.na {
+            if is_pd_parent && na.pool_index == 0 {
+                return Err(ServiceConfigError::InvalidConfig {
+                    reason: format!(
+                        "IA_NA pool_index ({}) must be >= 1 when parent is PD-derived (subnet 0 is reserved for WAN)",
+                        na.pool_index
+                    ),
+                });
+            }
             if 64 <= parent_len {
                 return Err(ServiceConfigError::InvalidConfig {
                     reason: format!(
@@ -655,6 +657,14 @@ impl LanPrefixGroupConfig {
             }
         }
         if let Some(pd) = &self.pd {
+            if is_pd_parent && pd.start_index == 0 {
+                return Err(ServiceConfigError::InvalidConfig {
+                    reason: format!(
+                        "IA_PD start_index ({}) must be >= 1 when parent is PD-derived (subnet 0 is reserved for WAN)",
+                        pd.start_index
+                    ),
+                });
+            }
             if pd.pool_len <= parent_len {
                 return Err(ServiceConfigError::InvalidConfig {
                     reason: format!(
@@ -860,15 +870,7 @@ fn validate_expanded_pair(
 }
 
 fn effective_pool_index(src: &LanIPv6SourceConfig) -> u64 {
-    let base = src.pool_index() as u64;
-    match src {
-        LanIPv6SourceConfig::RaPd { .. }
-        | LanIPv6SourceConfig::NaPd { .. }
-        | LanIPv6SourceConfig::PdPd { .. } => {
-            base.saturating_add(reserved_wan_slots(src.pool_len()))
-        }
-        _ => base,
-    }
+    src.pool_index() as u64
 }
 
 impl LanIPv6Config {
@@ -1928,7 +1930,7 @@ mod tests {
                         planned_parent_prefix_len: 60,
                     },
                     ra: Some(RaPrefixConfig {
-                        pool_index: 0,
+                        pool_index: 1,
                         preferred_lifetime: 300,
                         valid_lifetime: 600,
                     }),
@@ -1971,12 +1973,12 @@ mod tests {
                 planned_parent_prefix_len: 60,
             },
             ra: Some(RaPrefixConfig {
-                pool_index: 0,
+                pool_index: 1,
                 preferred_lifetime: 300,
                 valid_lifetime: 600,
             }),
             na: None,
-            pd: Some(PdPrefixRangeConfig { pool_len: 64, start_index: 0, end_index: 0 }),
+            pd: Some(PdPrefixRangeConfig { pool_len: 64, start_index: 1, end_index: 1 }),
         };
 
         assert!(validate_prefix_groups(&[config]).is_err());
@@ -1991,11 +1993,11 @@ mod tests {
                 planned_parent_prefix_len: 60,
             },
             ra: Some(RaPrefixConfig {
-                pool_index: 0,
+                pool_index: 1,
                 preferred_lifetime: 300,
                 valid_lifetime: 600,
             }),
-            na: Some(NaPrefixConfig { pool_index: 0 }),
+            na: Some(NaPrefixConfig { pool_index: 1 }),
             pd: None,
         };
 
@@ -2072,7 +2074,7 @@ mod tests {
                     planned_parent_prefix_len: 60,
                 },
                 ra: Some(RaPrefixConfig {
-                    pool_index: 0,
+                    pool_index: 1,
                     preferred_lifetime: 300,
                     valid_lifetime: 600,
                 }),
@@ -2087,7 +2089,7 @@ mod tests {
                 },
                 ra: None,
                 na: None,
-                pd: Some(PdPrefixRangeConfig { pool_len: 64, start_index: 0, end_index: 0 }),
+                pd: Some(PdPrefixRangeConfig { pool_len: 64, start_index: 1, end_index: 1 }),
             },
         ];
 
