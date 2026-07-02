@@ -286,32 +286,43 @@ fn handle_request_or_renew(
     // ── IA_PD ──
     if iapd_id.is_some() {
         let prev_prefix = status.get_pd_prefix(client_duid);
-        let prev_routes: Vec<(Ipv6Addr, u8)> = prev_prefix.iter().map(|(p, l)| (*p, *l)).collect();
 
         status.offer_pd(client_duid);
         status.confirm_pd(client_duid);
 
         let new_prefix = status.get_pd_prefix(client_duid);
-        if new_prefix != prev_prefix {
-            // Old routes to remove, new routes to add
+        if let Some((prefix, prefix_len)) = new_prefix {
+            // Add side is unconditional: `ip route replace`, the eBPF map update and
+            // the route_service upsert are all idempotent, so re-issuing the current
+            // prefix is safe and also refreshes the kernel route's `expires` timer on
+            // every Renew. The prefix is assigned as early as Solicit (`offer_pd`), so
+            // gating on "prefix changed" would skip the very first install.
             let client_ll = match client_addr {
                 SocketAddr::V6(v6) => *v6.ip(),
                 _ => Ipv6Addr::UNSPECIFIED,
             };
 
-            let new_routes: Vec<(Ipv6Addr, u8)> =
-                new_prefix.iter().map(|(p, l)| (*p, *l)).collect();
+            let new_routes: Vec<(Ipv6Addr, u8)> = vec![(prefix, prefix_len)];
+
+            // Delete side is conditional: only when the prefix actually changed does the
+            // stale prefix need removal (kernel route, prefix-keyed eBPF entry, and the
+            // route_service key which mixes the prefix hash). Keeping this empty on an
+            // unchanged Renew avoids a del+add churn / brief unreachable window.
+            let old_routes: Vec<(Ipv6Addr, u8)> = match prev_prefix {
+                Some(prev) if prev != (prefix, prefix_len) => vec![prev],
+                _ => Vec::new(),
+            };
 
             pd_route_changes.push(PdRouteChange {
                 duid: client_duid.to_vec(),
-                old_routes: prev_routes.clone(),
+                old_routes,
                 new_routes: new_routes.clone(),
                 sub_index: status.pd_lease_sub_index(client_duid).unwrap_or(0),
                 valid_time: params.pd_valid_lifetime,
             });
 
             // Update lease's active_routes and client_addr
-            let _ = status.update_pd_routes(client_duid, client_ll, new_routes.clone());
+            let _ = status.update_pd_routes(client_duid, client_ll, new_routes);
         }
     }
 
