@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::common::{candidate_zones, relative_record_name, RecordStore};
+use super::common::{candidate_zones, relative_record_name, unquote_txt_value, RecordStore};
 use super::{DnsChallengeSolver, DnsRecordUpdater};
 
 const TENCENT_API_BASE: &str = "https://dnspod.tencentcloudapi.com/";
@@ -26,6 +26,7 @@ const TENCENT_API_HOST: &str = "dnspod.tencentcloudapi.com";
 const TENCENT_API_VERSION: &str = "2021-03-23";
 const TENCENT_SERVICE: &str = "dnspod";
 const TENCENT_SIGNED_HEADERS: &str = "content-type;host;x-tc-action";
+const DEFAULT_PROVIDER_TTL: u32 = 600;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -40,6 +41,7 @@ pub struct TencentSolver {
     secret_id: String,
     secret_key: String,
     base_url: String,
+    ttl: Option<u32>,
     records: RecordStore<TencentCleanupRecord>,
 }
 
@@ -103,13 +105,14 @@ struct TencentRecordItem {
 }
 
 impl TencentSolver {
-    pub fn new(secret_id: String, secret_key: String) -> Self {
-        Self::with_base_url(secret_id, secret_key, TENCENT_API_BASE)
+    pub fn new(secret_id: String, secret_key: String, ttl: Option<u32>) -> Self {
+        Self::with_base_url(secret_id, secret_key, ttl, TENCENT_API_BASE)
     }
 
     pub fn with_base_url(
         secret_id: String,
         secret_key: String,
+        ttl: Option<u32>,
         base_url: impl Into<String>,
     ) -> Self {
         Self {
@@ -117,6 +120,7 @@ impl TencentSolver {
             secret_id,
             secret_key,
             base_url: base_url.into(),
+            ttl,
             records: RecordStore::new(),
         }
     }
@@ -210,7 +214,7 @@ impl TencentSolver {
         let text = response.text().await.map_err(|e| {
             CertError::DnsChallengeSetupFailed(format!("Failed to read Tencent response: {e}"))
         })?;
-        let envelope: TencentEnvelope<T> = serde_json::from_str(&text).map_err(|e| {
+        let envelope: TencentEnvelope<Value> = serde_json::from_str(&text).map_err(|e| {
             CertError::DnsChallengeSetupFailed(format!("Failed to parse Tencent response: {e}"))
         })?;
 
@@ -221,7 +225,10 @@ impl TencentSolver {
             )));
         }
 
-        Ok(envelope.response.body)
+        let body = serde_json::from_value(envelope.response.body).map_err(|e| {
+            CertError::DnsChallengeSetupFailed(format!("Failed to parse Tencent response: {e}"))
+        })?;
+        Ok(body)
     }
 
     async fn validate_credentials(&self) -> Result<(), CertError> {
@@ -246,6 +253,63 @@ impl TencentSolver {
             || text.contains("domainnotfound")
             || text.contains("domainnotexists")
             || text.contains("not found")
+    }
+
+    fn is_record_not_found(err: &CertError) -> bool {
+        let text = err.to_string().to_ascii_lowercase();
+        text.contains("nodataofrecord") || text.contains("recordnotfound")
+    }
+
+    fn is_record_exists(err: &CertError) -> bool {
+        err.to_string().to_ascii_lowercase().contains("exist")
+    }
+
+    /// Query the record list, treating Tencent's "no matching record" errors
+    /// (`ResourceNotFound.NoDataOfRecord`) and "domain not found" as an empty list
+    /// rather than a hard failure.
+    async fn describe_record_list(
+        &self,
+        zone_name: &str,
+        sub_domain: &str,
+        record_type: &str,
+    ) -> Result<TencentDescribeRecordListBody, CertError> {
+        match self
+            .request(
+                "DescribeRecordList",
+                json!({ "Domain": zone_name, "Subdomain": sub_domain, "RecordType": record_type }),
+            )
+            .await
+        {
+            Ok(list) => Ok(list),
+            Err(err) if Self::is_domain_not_found(&err) || Self::is_record_not_found(&err) => {
+                Ok(TencentDescribeRecordListBody { record_list: Vec::new() })
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn find_txt_record_id(
+        &self,
+        zone_name: &str,
+        sub_domain: &str,
+        value: &str,
+    ) -> Result<Option<u64>, CertError> {
+        let list = self.describe_record_list(zone_name, sub_domain, "TXT").await?;
+
+        let desired = unquote_txt_value(value);
+        Ok(list
+            .record_list
+            .into_iter()
+            .find(|item| {
+                item.record_type == "TXT"
+                    && item.name == sub_domain
+                    && item
+                        .value
+                        .as_deref()
+                        .map(|existing| unquote_txt_value(existing) == desired)
+                        .unwrap_or(false)
+            })
+            .map(|item| item.record_id))
     }
 
     async fn find_zone_name(&self, domain: &str) -> Result<String, CertError> {
@@ -273,12 +337,7 @@ impl TencentSolver {
         value: &str,
         ttl: u32,
     ) -> Result<(), CertError> {
-        let list: TencentDescribeRecordListBody = self
-            .request(
-                "DescribeRecordList",
-                json!({ "Domain": zone_name, "Subdomain": sub_domain, "RecordType": record_type }),
-            )
-            .await?;
+        let list = self.describe_record_list(zone_name, sub_domain, record_type).await?;
 
         if let Some(record_id) = list
             .record_list
@@ -322,7 +381,9 @@ impl TencentSolver {
 }
 
 pub async fn validate_credentials(secret_id: &str, secret_key: &str) -> Result<(), CertError> {
-    TencentSolver::new(secret_id.to_string(), secret_key.to_string()).validate_credentials().await
+    TencentSolver::new(secret_id.to_string(), secret_key.to_string(), None)
+        .validate_credentials()
+        .await
 }
 
 pub async fn validate_zone_access(
@@ -330,7 +391,7 @@ pub async fn validate_zone_access(
     secret_key: &str,
     zone_name: &str,
 ) -> Result<(), CertError> {
-    TencentSolver::new(secret_id.to_string(), secret_key.to_string())
+    TencentSolver::new(secret_id.to_string(), secret_key.to_string(), None)
         .validate_zone_access(zone_name)
         .await
 }
@@ -340,7 +401,7 @@ pub async fn validate_domain_access(
     secret_key: &str,
     domain: &str,
 ) -> Result<(), CertError> {
-    TencentSolver::new(secret_id.to_string(), secret_key.to_string())
+    TencentSolver::new(secret_id.to_string(), secret_key.to_string(), None)
         .validate_domain_access(domain)
         .await
 }
@@ -366,12 +427,7 @@ impl DnsRecordUpdater for TencentSolver {
         desired_values: &[String],
         ttl: u32,
     ) -> Result<(), CertError> {
-        let list: TencentDescribeRecordListBody = self
-            .request(
-                "DescribeRecordList",
-                json!({ "Domain": zone_name, "Subdomain": record_name, "RecordType": record_type }),
-            )
-            .await?;
+        let list = self.describe_record_list(zone_name, record_name, record_type).await?;
 
         let desired_set: std::collections::HashSet<&str> =
             desired_values.iter().map(|v| v.as_str()).collect();
@@ -417,10 +473,25 @@ impl DnsRecordUpdater for TencentSolver {
 
 #[async_trait::async_trait]
 impl DnsChallengeSolver for TencentSolver {
+    fn provider_ttl(&self) -> u32 {
+        self.ttl.unwrap_or(DEFAULT_PROVIDER_TTL)
+    }
+
     async fn create_txt_record(&self, domain: &str, value: &str) -> Result<(), CertError> {
         let zone_name = self.find_zone_name(domain).await?;
         let sub_domain = relative_record_name(domain, &zone_name)?;
-        let response = self
+
+        if let Some(record_id) = self.find_txt_record_id(&zone_name, &sub_domain, value).await? {
+            self.records.insert(
+                domain,
+                value,
+                TencentCleanupRecord { domain: zone_name, record_id },
+            );
+            tracing::info!("Reusing existing Tencent TXT record for {domain}");
+            return Ok(());
+        }
+
+        let record_id = match self
             .request::<TencentCreateRecordBody>(
                 "CreateRecord",
                 json!({
@@ -430,16 +501,19 @@ impl DnsChallengeSolver for TencentSolver {
                     "RecordLine": "默认",
                     "RecordLineId": "0",
                     "Value": value,
-                    "TTL": 120
+                    "TTL": self.provider_ttl()
                 }),
             )
-            .await?;
+            .await
+        {
+            Ok(response) => response.record_id,
+            Err(err) if Self::is_record_exists(&err) => {
+                self.find_txt_record_id(&zone_name, &sub_domain, value).await?.ok_or(err)?
+            }
+            Err(err) => return Err(err),
+        };
 
-        self.records.insert(
-            domain,
-            value,
-            TencentCleanupRecord { domain: zone_name, record_id: response.record_id },
-        );
+        self.records.insert(domain, value, TencentCleanupRecord { domain: zone_name, record_id });
         tracing::info!("Created Tencent TXT record for {domain}");
         Ok(())
     }

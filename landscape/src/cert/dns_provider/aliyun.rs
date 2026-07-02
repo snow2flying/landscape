@@ -25,7 +25,7 @@ use super::{DnsChallengeSolver, DnsRecordUpdater};
 
 const ALIYUN_API_BASE: &str = "https://alidns.aliyuncs.com/";
 const ALIYUN_API_VERSION: &str = "2015-01-09";
-const ALIYUN_TXT_TTL: &str = "600";
+const DEFAULT_PROVIDER_TTL: u32 = 600;
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -34,6 +34,7 @@ pub struct AliyunSolver {
     access_key_id: String,
     access_key_secret: String,
     base_url: String,
+    ttl: Option<u32>,
     records: RecordStore<String>,
 }
 
@@ -46,13 +47,14 @@ struct AliyunErrorResponse {
 }
 
 impl AliyunSolver {
-    pub fn new(access_key_id: String, access_key_secret: String) -> Self {
-        Self::with_base_url(access_key_id, access_key_secret, ALIYUN_API_BASE)
+    pub fn new(access_key_id: String, access_key_secret: String, ttl: Option<u32>) -> Self {
+        Self::with_base_url(access_key_id, access_key_secret, ttl, ALIYUN_API_BASE)
     }
 
     pub fn with_base_url(
         access_key_id: String,
         access_key_secret: String,
+        ttl: Option<u32>,
         base_url: impl Into<String>,
     ) -> Self {
         Self {
@@ -60,6 +62,7 @@ impl AliyunSolver {
             access_key_id,
             access_key_secret,
             base_url: base_url.into(),
+            ttl,
             records: RecordStore::new(),
         }
     }
@@ -253,7 +256,7 @@ pub async fn validate_credentials(
     access_key_id: &str,
     access_key_secret: &str,
 ) -> Result<(), CertError> {
-    AliyunSolver::new(access_key_id.to_string(), access_key_secret.to_string())
+    AliyunSolver::new(access_key_id.to_string(), access_key_secret.to_string(), None)
         .validate_credentials()
         .await
 }
@@ -263,7 +266,7 @@ pub async fn validate_zone_access(
     access_key_secret: &str,
     zone_name: &str,
 ) -> Result<(), CertError> {
-    AliyunSolver::new(access_key_id.to_string(), access_key_secret.to_string())
+    AliyunSolver::new(access_key_id.to_string(), access_key_secret.to_string(), None)
         .validate_zone_access(zone_name)
         .await
 }
@@ -273,7 +276,7 @@ pub async fn validate_domain_access(
     access_key_secret: &str,
     domain: &str,
 ) -> Result<(), CertError> {
-    AliyunSolver::new(access_key_id.to_string(), access_key_secret.to_string())
+    AliyunSolver::new(access_key_id.to_string(), access_key_secret.to_string(), None)
         .validate_domain_access(domain)
         .await
 }
@@ -381,6 +384,10 @@ impl DnsRecordUpdater for AliyunSolver {
 
 #[async_trait::async_trait]
 impl DnsChallengeSolver for AliyunSolver {
+    fn provider_ttl(&self) -> u32 {
+        self.ttl.unwrap_or(DEFAULT_PROVIDER_TTL)
+    }
+
     async fn create_txt_record(&self, domain: &str, value: &str) -> Result<(), CertError> {
         let zone_name = self.find_zone_name(domain).await?;
         let rr = relative_record_name(domain, &zone_name)?;
@@ -390,7 +397,7 @@ impl DnsChallengeSolver for AliyunSolver {
                 vec![
                     ("DomainName".to_string(), zone_name),
                     ("RR".to_string(), rr),
-                    ("TTL".to_string(), ALIYUN_TXT_TTL.to_string()),
+                    ("TTL".to_string(), self.provider_ttl().to_string()),
                     ("Type".to_string(), "TXT".to_string()),
                     ("Value".to_string(), value.to_string()),
                 ],

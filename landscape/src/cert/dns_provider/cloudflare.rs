@@ -16,11 +16,13 @@ use super::common::{record_name, RecordStore};
 use super::{DnsChallengeSolver, DnsRecordUpdater};
 
 const CF_API_BASE: &str = "https://api.cloudflare.com/client/v4";
+const DEFAULT_PROVIDER_TTL: u32 = 120;
 
 pub struct CloudflareSolver {
     client: Client,
     api_token: String,
     base_url: String,
+    ttl: Option<u32>,
     records: RecordStore<(String, String)>,
 }
 
@@ -49,15 +51,16 @@ struct CfDnsRecord {
 }
 
 impl CloudflareSolver {
-    pub fn new(api_token: String) -> Self {
-        Self::with_base_url(api_token, CF_API_BASE)
+    pub fn new(api_token: String, ttl: Option<u32>) -> Self {
+        Self::with_base_url(api_token, ttl, CF_API_BASE)
     }
 
-    pub fn with_base_url(api_token: String, base_url: impl Into<String>) -> Self {
+    pub fn with_base_url(api_token: String, ttl: Option<u32>, base_url: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
             api_token,
             base_url: base_url.into(),
+            ttl,
             records: RecordStore::new(),
         }
     }
@@ -249,15 +252,15 @@ impl CloudflareSolver {
 }
 
 pub async fn validate_credentials(api_token: &str) -> Result<(), CertError> {
-    CloudflareSolver::new(api_token.to_string()).validate_credentials().await
+    CloudflareSolver::new(api_token.to_string(), None).validate_credentials().await
 }
 
 pub async fn validate_zone_access(api_token: &str, zone_name: &str) -> Result<(), CertError> {
-    CloudflareSolver::new(api_token.to_string()).validate_zone_access(zone_name).await
+    CloudflareSolver::new(api_token.to_string(), None).validate_zone_access(zone_name).await
 }
 
 pub async fn validate_domain_access(api_token: &str, domain: &str) -> Result<(), CertError> {
-    CloudflareSolver::new(api_token.to_string()).validate_domain_access(domain).await
+    CloudflareSolver::new(api_token.to_string(), None).validate_domain_access(domain).await
 }
 
 #[async_trait::async_trait]
@@ -405,6 +408,10 @@ impl DnsRecordUpdater for CloudflareSolver {
 
 #[async_trait::async_trait]
 impl DnsChallengeSolver for CloudflareSolver {
+    fn provider_ttl(&self) -> u32 {
+        self.ttl.unwrap_or(DEFAULT_PROVIDER_TTL)
+    }
+
     async fn create_txt_record(&self, domain: &str, value: &str) -> Result<(), CertError> {
         let zone_id = self.find_zone_id(domain).await?;
         let record_name = record_name(domain);
@@ -413,7 +420,7 @@ impl DnsChallengeSolver for CloudflareSolver {
             "type": "TXT",
             "name": record_name,
             "content": value,
-            "ttl": 120
+            "ttl": self.provider_ttl()
         });
 
         let resp = self

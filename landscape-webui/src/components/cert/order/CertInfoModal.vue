@@ -76,6 +76,14 @@ async function fetch_parsed_info() {
     parsed_error.value = "";
     return;
   }
+  // Certificate not issued yet: skip fetching to avoid a misleading
+  // "issuance failed: No certificate content" error. The empty state
+  // (cert.no_cert_content) is shown instead.
+  if (!props.cert.certificate) {
+    parsed_info.value = null;
+    parsed_error.value = "";
+    return;
+  }
   parsed_loading.value = true;
   parsed_error.value = "";
   try {

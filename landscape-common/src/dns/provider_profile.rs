@@ -27,6 +27,13 @@ pub struct DnsProviderProfile {
 }
 
 impl DnsProviderProfile {
+    /// Preferred TTL (seconds) for DNS records created by this profile, covering
+    /// both DDNS records and ACME DNS challenge records. Returns `None` to let the
+    /// provider fall back to its own default.
+    pub fn default_record_ttl(&self) -> Option<u32> {
+        self.ddns_default_ttl
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.name.trim().is_empty() {
             return Err("DNS provider profile name must not be empty".to_string());

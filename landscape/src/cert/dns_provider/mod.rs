@@ -8,8 +8,16 @@ pub(crate) mod tencent;
 use landscape_common::cert::order::DnsProviderConfig;
 use landscape_common::cert::CertError;
 
+/// Fallback TTL (seconds) used when a provider does not define its own default.
+pub const GLOBAL_PROVIDER_TTL: u32 = 600;
+
 #[async_trait::async_trait]
 pub trait DnsChallengeSolver: Send + Sync {
+    /// The TTL (seconds) this provider applies to challenge records.
+    /// Prefers the configured value, otherwise the provider's own default.
+    fn provider_ttl(&self) -> u32 {
+        GLOBAL_PROVIDER_TTL
+    }
     /// Create a TXT record: _acme-challenge.{domain} → value
     async fn create_txt_record(&self, domain: &str, value: &str) -> Result<(), CertError>;
     /// Remove the TXT record after validation
@@ -38,24 +46,33 @@ pub trait DnsRecordUpdater: Send + Sync {
 }
 
 /// Factory: build solver from reusable DNS provider profile config.
+///
+/// `ttl` is the configured TTL for challenge records; when `None` each
+/// provider falls back to its own default.
 pub fn build_solver(
     provider: &DnsProviderConfig,
+    ttl: Option<u32>,
 ) -> Result<Box<dyn DnsChallengeSolver>, CertError> {
     match provider {
         DnsProviderConfig::Cloudflare { api_token } => {
-            Ok(Box::new(cloudflare::CloudflareSolver::new(api_token.clone())))
+            Ok(Box::new(cloudflare::CloudflareSolver::new(api_token.clone(), ttl)))
         }
         DnsProviderConfig::Aliyun { access_key_id, access_key_secret } => Ok(Box::new(
-            aliyun::AliyunSolver::new(access_key_id.clone(), access_key_secret.clone()),
+            aliyun::AliyunSolver::new(access_key_id.clone(), access_key_secret.clone(), ttl),
         )),
         DnsProviderConfig::Tencent { secret_id, secret_key } => {
-            Ok(Box::new(tencent::TencentSolver::new(secret_id.clone(), secret_key.clone())))
+            Ok(Box::new(tencent::TencentSolver::new(secret_id.clone(), secret_key.clone(), ttl)))
         }
-        DnsProviderConfig::Aws { access_key_id, secret_access_key, region } => Ok(Box::new(
-            aws::AwsSolver::new(access_key_id.clone(), secret_access_key.clone(), region.clone()),
-        )),
+        DnsProviderConfig::Aws { access_key_id, secret_access_key, region } => {
+            Ok(Box::new(aws::AwsSolver::new(
+                access_key_id.clone(),
+                secret_access_key.clone(),
+                region.clone(),
+                ttl,
+            )))
+        }
         DnsProviderConfig::Google { service_account_json } => {
-            Ok(Box::new(google::GoogleSolver::new(service_account_json.clone())?))
+            Ok(Box::new(google::GoogleSolver::new(service_account_json.clone(), ttl)?))
         }
         DnsProviderConfig::Manual => Err(CertError::DnsChallengeSetupFailed(
             "manual DNS not supported for async issuance".into(),
@@ -68,13 +85,13 @@ pub fn build_record_updater(
 ) -> Result<Box<dyn DnsRecordUpdater>, CertError> {
     match provider {
         DnsProviderConfig::Cloudflare { api_token } => {
-            Ok(Box::new(cloudflare::CloudflareSolver::new(api_token.clone())))
+            Ok(Box::new(cloudflare::CloudflareSolver::new(api_token.clone(), None)))
         }
         DnsProviderConfig::Aliyun { access_key_id, access_key_secret } => Ok(Box::new(
-            aliyun::AliyunSolver::new(access_key_id.clone(), access_key_secret.clone()),
+            aliyun::AliyunSolver::new(access_key_id.clone(), access_key_secret.clone(), None),
         )),
         DnsProviderConfig::Tencent { secret_id, secret_key } => {
-            Ok(Box::new(tencent::TencentSolver::new(secret_id.clone(), secret_key.clone())))
+            Ok(Box::new(tencent::TencentSolver::new(secret_id.clone(), secret_key.clone(), None)))
         }
         DnsProviderConfig::Manual => Err(CertError::DnsChallengeSetupFailed(
             "manual DNS provider does not support DDNS updates".into(),
@@ -217,7 +234,7 @@ mod tests {
         ];
 
         for challenge in configs {
-            assert!(build_solver(&challenge).is_ok());
+            assert!(build_solver(&challenge, None).is_ok());
         }
     }
 
@@ -268,6 +285,7 @@ mod tests {
         let base_url = spawn_router(router).await;
         let solver = cloudflare::CloudflareSolver::with_base_url(
             "token".into(),
+            None,
             format!("{base_url}/client/v4"),
         );
 
@@ -338,6 +356,7 @@ mod tests {
         let solver = aliyun::AliyunSolver::with_base_url(
             "id".into(),
             "secret".into(),
+            None,
             format!("{base_url}/"),
         );
 
@@ -387,6 +406,9 @@ mod tests {
                         }))
                     }
                 }
+                Some("DescribeRecordList") => {
+                    Json(json!({ "Response": { "RequestId": "rid", "RecordList": [] } }))
+                }
                 Some("CreateRecord") => {
                     state.created.lock().unwrap().push((
                         payload["Domain"].as_str().unwrap_or_default().to_string(),
@@ -420,6 +442,7 @@ mod tests {
         let solver = tencent::TencentSolver::with_base_url(
             "id".into(),
             "secret".into(),
+            None,
             format!("{base_url}/"),
         );
 
@@ -435,6 +458,116 @@ mod tests {
             )]
         );
         assert_eq!(state.deleted.lock().unwrap().as_slice(), &[("example.com".to_string(), 42)]);
+    }
+
+    #[tokio::test]
+    async fn tencent_solver_reuses_existing_txt_record() {
+        #[derive(Default)]
+        struct TencentState {
+            created: Mutex<Vec<Value>>,
+        }
+
+        async fn handle_tencent(
+            State(state): State<Arc<TencentState>>,
+            headers: HeaderMap,
+            Json(payload): Json<Value>,
+        ) -> Json<Value> {
+            match headers.get("x-tc-action").and_then(|value| value.to_str().ok()) {
+                Some("DescribeDomain") => {
+                    if payload["Domain"].as_str().is_some_and(|domain| domain == "example.com") {
+                        Json(
+                            json!({ "Response": { "RequestId": "rid", "DomainInfo": { "Domain": "example.com" } } }),
+                        )
+                    } else {
+                        Json(
+                            json!({ "Response": { "RequestId": "rid", "Error": { "Code": "ResourceNotFound.NoDataOfDomain", "Message": "domain not found" } } }),
+                        )
+                    }
+                }
+                Some("DescribeRecordList") => Json(json!({
+                    "Response": {
+                        "RequestId": "rid",
+                        "RecordList": [
+                            { "RecordId": 7, "Name": "_acme-challenge.www", "Type": "TXT", "Value": "value-1" }
+                        ]
+                    }
+                })),
+                Some("CreateRecord") => {
+                    state.created.lock().unwrap().push(payload);
+                    Json(json!({ "Response": { "RequestId": "rid", "RecordId": 42 } }))
+                }
+                _ => Json(
+                    json!({ "Response": { "RequestId": "rid", "Error": { "Code": "Unsupported", "Message": "unsupported" } } }),
+                ),
+            }
+        }
+
+        let state = Arc::new(TencentState::default());
+        let router = Router::new().route("/", post(handle_tencent)).with_state(state.clone());
+        let base_url = spawn_router(router).await;
+        let solver = tencent::TencentSolver::with_base_url(
+            "id".into(),
+            "secret".into(),
+            None,
+            format!("{base_url}/"),
+        );
+
+        solver.create_txt_record("www.example.com", "value-1").await.expect("tencent reuse");
+
+        assert!(
+            state.created.lock().unwrap().is_empty(),
+            "CreateRecord must not be called when a matching TXT record already exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn tencent_solver_surfaces_api_error() {
+        async fn handle_tencent(headers: HeaderMap) -> Json<Value> {
+            match headers.get("x-tc-action").and_then(|value| value.to_str().ok()) {
+                Some("DescribeDomain") => Json(
+                    json!({ "Response": { "RequestId": "rid", "DomainInfo": { "Domain": "example.com" } } }),
+                ),
+                Some("DescribeRecordList") => {
+                    Json(json!({ "Response": { "RequestId": "rid", "RecordList": [] } }))
+                }
+                Some("CreateRecord") => Json(json!({
+                    "Response": {
+                        "RequestId": "rid",
+                        "Error": {
+                            "Code": "AuthFailure.UnauthorizedOperation",
+                            "Message": "permission denied"
+                        }
+                    }
+                })),
+                _ => Json(
+                    json!({ "Response": { "RequestId": "rid", "Error": { "Code": "Unsupported", "Message": "unsupported" } } }),
+                ),
+            }
+        }
+
+        let router = Router::new().route("/", post(handle_tencent));
+        let base_url = spawn_router(router).await;
+        let solver = tencent::TencentSolver::with_base_url(
+            "id".into(),
+            "secret".into(),
+            None,
+            format!("{base_url}/"),
+        );
+
+        let err = solver
+            .create_txt_record("example.com", "value-1")
+            .await
+            .expect_err("expected api error");
+        let message = err.to_string();
+        assert!(
+            message.contains("AuthFailure.UnauthorizedOperation")
+                && message.contains("permission denied"),
+            "real Tencent error should be surfaced, got: {message}"
+        );
+        assert!(
+            !message.contains("missing field"),
+            "error must not be masked as a parse error, got: {message}"
+        );
     }
 
     #[tokio::test]
@@ -522,6 +655,7 @@ mod tests {
             "id".into(),
             "secret".into(),
             "us-east-1".into(),
+            None,
             base_url,
         );
 
@@ -636,9 +770,12 @@ yWNscX6DYU0gtUc1UxfIG9vX0jd4W8BVMEWKjwBLS+hL5gI5pTj7m/4HZ/8RJH2H
             "token_uri": format!("{base_url}/oauth2/token")
         })
         .to_string();
-        let solver =
-            google::GoogleSolver::with_base_url(service_account_json, format!("{base_url}/dns/v1"))
-                .expect("google solver");
+        let solver = google::GoogleSolver::with_base_url(
+            service_account_json,
+            None,
+            format!("{base_url}/dns/v1"),
+        )
+        .expect("google solver");
 
         solver.create_txt_record("example.com", "value-1").await.expect("google create first");
         solver.create_txt_record("example.com", "value-2").await.expect("google create second");

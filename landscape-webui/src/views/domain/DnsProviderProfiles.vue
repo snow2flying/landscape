@@ -52,6 +52,8 @@ function defaultDdnsTtlForProvider(type: string): number {
   switch (type) {
     case "aliyun":
       return 600;
+    case "tencent":
+      return 600;
     default:
       return 120;
   }

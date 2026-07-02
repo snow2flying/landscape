@@ -12,6 +12,7 @@ use super::DnsChallengeSolver;
 
 const GOOGLE_DNS_API_BASE: &str = "https://dns.googleapis.com/dns/v1";
 const GOOGLE_DNS_SCOPE: &str = "https://www.googleapis.com/auth/ndev.clouddns.readwrite";
+const DEFAULT_PROVIDER_TTL: u32 = 120;
 
 #[derive(Clone)]
 struct GoogleManagedZone {
@@ -101,17 +102,19 @@ pub struct GoogleSolver {
     client: Client,
     account: GoogleServiceAccount,
     base_url: String,
+    ttl: Option<u32>,
     token_cache: Mutex<Option<GoogleToken>>,
     records: RecordStore<GoogleCleanupRecord>,
 }
 
 impl GoogleSolver {
-    pub fn new(service_account_json: String) -> Result<Self, CertError> {
-        Self::with_base_url(service_account_json, GOOGLE_DNS_API_BASE)
+    pub fn new(service_account_json: String, ttl: Option<u32>) -> Result<Self, CertError> {
+        Self::with_base_url(service_account_json, ttl, GOOGLE_DNS_API_BASE)
     }
 
     pub fn with_base_url(
         service_account_json: String,
+        ttl: Option<u32>,
         base_url: impl Into<String>,
     ) -> Result<Self, CertError> {
         let account: GoogleServiceAccount =
@@ -130,6 +133,7 @@ impl GoogleSolver {
             client: Client::new(),
             account,
             base_url: base_url.into(),
+            ttl,
             token_cache: Mutex::new(None),
             records: RecordStore::new(),
         })
@@ -433,25 +437,29 @@ impl GoogleSolver {
 }
 
 pub async fn validate_credentials(service_account_json: &str) -> Result<(), CertError> {
-    GoogleSolver::new(service_account_json.to_string())?.validate_credentials().await
+    GoogleSolver::new(service_account_json.to_string(), None)?.validate_credentials().await
 }
 
 pub async fn validate_zone_access(
     service_account_json: &str,
     zone_name: &str,
 ) -> Result<(), CertError> {
-    GoogleSolver::new(service_account_json.to_string())?.validate_zone_access(zone_name).await
+    GoogleSolver::new(service_account_json.to_string(), None)?.validate_zone_access(zone_name).await
 }
 
 pub async fn validate_domain_access(
     service_account_json: &str,
     domain: &str,
 ) -> Result<(), CertError> {
-    GoogleSolver::new(service_account_json.to_string())?.validate_domain_access(domain).await
+    GoogleSolver::new(service_account_json.to_string(), None)?.validate_domain_access(domain).await
 }
 
 #[async_trait::async_trait]
 impl DnsChallengeSolver for GoogleSolver {
+    fn provider_ttl(&self) -> u32 {
+        self.ttl.unwrap_or(DEFAULT_PROVIDER_TTL)
+    }
+
     async fn create_txt_record(&self, domain: &str, value: &str) -> Result<(), CertError> {
         let zone = self.find_managed_zone(domain).await?;
         let record_fqdn = fqdn(&record_name(domain));
@@ -471,7 +479,7 @@ impl DnsChallengeSolver for GoogleSolver {
                     Vec::new(),
                     vec![GoogleRecordSet {
                         name: record_fqdn.clone(),
-                        ttl: 120,
+                        ttl: self.provider_ttl(),
                         rrdatas: vec![value.to_string()],
                     }],
                 )

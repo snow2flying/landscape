@@ -404,7 +404,7 @@ impl CertService {
         match &acme.challenge_type {
             ChallengeType::Dns { provider_profile_id } => {
                 let profile = self.resolve_dns_provider_profile(*provider_profile_id).await?;
-                dns_provider::build_solver(&profile.provider_config)?;
+                dns_provider::build_solver(&profile.provider_config, profile.default_record_ttl())?;
                 for domain in domains {
                     dns_provider::validate_provider_domain_access(&profile.provider_config, domain)
                         .await?;
@@ -587,7 +587,10 @@ impl CertService {
             let solver = match acme.challenge_type {
                 ChallengeType::Dns { provider_profile_id } => {
                     let profile = self.resolve_dns_provider_profile(provider_profile_id).await?;
-                    dns_provider::build_solver(&profile.provider_config)?
+                    dns_provider::build_solver(
+                        &profile.provider_config,
+                        profile.default_record_ttl(),
+                    )?
                 }
                 ChallengeType::Http { .. } => {
                     return Err(CertError::DnsChallengeSetupFailed(

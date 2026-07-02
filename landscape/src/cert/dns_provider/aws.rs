@@ -16,6 +16,7 @@ const AWS_ROUTE53_BASE: &str = "https://route53.amazonaws.com";
 const AWS_ROUTE53_CHINA_BASE: &str = "https://route53.amazonaws.com.cn";
 const AWS_ROUTE53_SERVICE: &str = "route53";
 const AWS_ROUTE53_DEFAULT_REGION: &str = "us-east-1";
+const DEFAULT_PROVIDER_TTL: u64 = 120;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -38,6 +39,7 @@ pub struct AwsSolver {
     secret_access_key: String,
     signing_region: String,
     base_url: String,
+    ttl: Option<u32>,
     records: RecordStore<AwsCleanupRecord>,
 }
 
@@ -106,7 +108,12 @@ struct AwsResourceRecord {
 }
 
 impl AwsSolver {
-    pub fn new(access_key_id: String, secret_access_key: String, region: String) -> Self {
+    pub fn new(
+        access_key_id: String,
+        secret_access_key: String,
+        region: String,
+        ttl: Option<u32>,
+    ) -> Self {
         let signing_region = if region.starts_with("cn-") {
             region.clone()
         } else {
@@ -117,13 +124,14 @@ impl AwsSolver {
         } else {
             AWS_ROUTE53_BASE.to_string()
         };
-        Self::with_base_url(access_key_id, secret_access_key, signing_region, base_url)
+        Self::with_base_url(access_key_id, secret_access_key, signing_region, ttl, base_url)
     }
 
     pub fn with_base_url(
         access_key_id: String,
         secret_access_key: String,
         signing_region: String,
+        ttl: Option<u32>,
         base_url: impl Into<String>,
     ) -> Self {
         Self {
@@ -132,6 +140,7 @@ impl AwsSolver {
             secret_access_key,
             signing_region,
             base_url: base_url.into(),
+            ttl,
             records: RecordStore::new(),
         }
     }
@@ -439,9 +448,14 @@ pub async fn validate_credentials(
     secret_access_key: &str,
     region: &str,
 ) -> Result<(), CertError> {
-    AwsSolver::new(access_key_id.to_string(), secret_access_key.to_string(), region.to_string())
-        .validate_credentials()
-        .await
+    AwsSolver::new(
+        access_key_id.to_string(),
+        secret_access_key.to_string(),
+        region.to_string(),
+        None,
+    )
+    .validate_credentials()
+    .await
 }
 
 pub async fn validate_zone_access(
@@ -450,9 +464,14 @@ pub async fn validate_zone_access(
     region: &str,
     zone_name: &str,
 ) -> Result<(), CertError> {
-    AwsSolver::new(access_key_id.to_string(), secret_access_key.to_string(), region.to_string())
-        .validate_zone_access(zone_name)
-        .await
+    AwsSolver::new(
+        access_key_id.to_string(),
+        secret_access_key.to_string(),
+        region.to_string(),
+        None,
+    )
+    .validate_zone_access(zone_name)
+    .await
 }
 
 pub async fn validate_domain_access(
@@ -461,20 +480,29 @@ pub async fn validate_domain_access(
     region: &str,
     domain: &str,
 ) -> Result<(), CertError> {
-    AwsSolver::new(access_key_id.to_string(), secret_access_key.to_string(), region.to_string())
-        .validate_domain_access(domain)
-        .await
+    AwsSolver::new(
+        access_key_id.to_string(),
+        secret_access_key.to_string(),
+        region.to_string(),
+        None,
+    )
+    .validate_domain_access(domain)
+    .await
 }
 
 #[async_trait::async_trait]
 impl DnsChallengeSolver for AwsSolver {
+    fn provider_ttl(&self) -> u32 {
+        self.ttl.unwrap_or(DEFAULT_PROVIDER_TTL as u32)
+    }
+
     async fn create_txt_record(&self, domain: &str, value: &str) -> Result<(), CertError> {
         let zone_id = self.find_zone_id(domain).await?;
         let record_fqdn = fqdn(&record_name(domain));
         let mut record_set =
             self.get_record_set(&zone_id, &record_fqdn).await?.unwrap_or(AwsRecordSet {
                 name: record_fqdn.clone(),
-                ttl: 120,
+                ttl: self.provider_ttl() as u64,
                 values: Vec::new(),
             });
 
