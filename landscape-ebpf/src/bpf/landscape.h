@@ -199,6 +199,13 @@ static __always_inline int is_broadcast_mac(struct __sk_buff *skb) {
     }
 }
 
+static __always_inline bool is_broadcast_or_mcast_mac(const u8 dmac[6]) {
+    bool is_broadcast = dmac[0] == 0xff && dmac[1] == 0xff && dmac[2] == 0xff && dmac[3] == 0xff &&
+                        dmac[4] == 0xff && dmac[5] == 0xff;
+    bool is_ipv6_mcast = dmac[0] == 0x33 && dmac[1] == 0x33;
+    return is_broadcast || is_ipv6_mcast;
+}
+
 static __always_inline int is_broadcast_ip4(__be32 dst) {
     // 255.255.255.255 or 0.0.0.0 (network byte order)
     if (dst == 0xffffffff || dst == 0) {

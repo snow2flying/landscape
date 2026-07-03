@@ -770,6 +770,8 @@ int xdp_lan_intro(struct xdp_md *ctx) {
 
     if ((void *)(eth + 1) > data_end) return XDP_PASS;
 
+    if (unlikely(is_broadcast_or_mcast_mac(eth->h_dest))) return XDP_PASS;
+
     if (eth->h_proto == ETH_IPV4) {
         struct route_context_v4 context = {};
         ret = xdp_read_ipv4(ctx, &context);
