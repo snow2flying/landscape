@@ -45,7 +45,7 @@ static __always_inline enum land_scan_result scan_ipv6(struct __sk_buff *skb,
             break;
         }
         default:
-            goto found_upper_layer;
+            goto found_l4;
         }
     }
 
@@ -53,12 +53,12 @@ static __always_inline enum land_scan_result scan_ipv6(struct __sk_buff *skb,
     case NEXTHDR_TCP:
     case NEXTHDR_UDP:
     case NEXTHDR_ICMP:
-        goto found_upper_layer;
+        goto found_l4;
     default:
         return LD_SCAN_ERR;
     }
 
-found_upper_layer:
+found_l4:
     if (frag_hdr_off) {
         if (VALIDATE_READ_DATA(skb, &frag_hdr, frag_hdr_off, sizeof(*frag_hdr))) {
             return LD_SCAN_ERR;

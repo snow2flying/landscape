@@ -48,7 +48,7 @@ static __always_inline int nat_v4_egress(struct xdp_md *ctx) {
 
     bool is_icmpx_error = idx.l4_protocol == IPPROTO_ICMP && idx.icmp_error_l3_offset != 0;
     u8 nat_l4_protocol = is_icmpx_error ? idx.icmp_error_l4_protocol : idx.l4_protocol;
-    bool allow_create_mapping = !is_icmpx_error && pkt_allow_initiating_ct(idx.pkt_type);
+    bool allow_create_mapping = !is_icmpx_error && pkt_can_begin_ct(idx.pkt_type);
 
     struct nat4_mapping_value_v3 *nat_egress_value = NULL;
     struct nat4_mapping_value_v3 *nat_ingress_value = NULL;
@@ -117,7 +117,7 @@ static __always_inline int nat_v4_egress(struct xdp_md *ctx) {
     }
 
     if (!is_icmpx_error) {
-        ct_state_transition(idx.pkt_type, NAT_MAPPING_EGRESS, nat4_v3_timer_base(ct_value));
+        nat_ct_advance(idx.pkt_type, NAT_MAPPING_EGRESS, nat4_v3_timer_base(ct_value));
         void *d = (void *)(long)ctx->data;
         void *de = (void *)(long)ctx->data_end;
         xdp_nat4_metric_accumulate(d, de, ct_value, false);
@@ -235,11 +235,11 @@ static __always_inline int nat_v4_ingress(struct xdp_md *ctx) {
     };
 
     u64 ingress_state_ref = nat_ingress_value->state_ref;
-    bool do_new_ct = is_static ? (!is_icmpx_error && pkt_allow_initiating_ct(idx.pkt_type))
+    bool do_new_ct = is_static ? (!is_icmpx_error && pkt_can_begin_ct(idx.pkt_type))
                                : (nat_ingress_value->is_allow_reuse &&
                                   nat4_v3_state_get(ingress_state_ref) == NAT4_V3_STATE_ACTIVE &&
                                   nat4_v3_ref_get(ingress_state_ref) > 0 && !is_icmpx_error &&
-                                  pkt_allow_initiating_ct(idx.pkt_type));
+                                  pkt_can_begin_ct(idx.pkt_type));
 
     struct nat4_timer_value_v3 *ct_value = NULL;
     ret = xdp_nat4_lookup_or_new_ct_ingress(data, data_end, meta.mark, current_ifindex,
@@ -249,7 +249,7 @@ static __always_inline int nat_v4_ingress(struct xdp_md *ctx) {
     if (ret == TIMER_NOT_FOUND || ret == TIMER_ERROR) return XDP_DROP;
 
     if (!is_icmpx_error) {
-        ct_state_transition(idx.pkt_type, NAT_MAPPING_INGRESS, nat4_v3_timer_base(ct_value));
+        nat_ct_advance(idx.pkt_type, NAT_MAPPING_INGRESS, nat4_v3_timer_base(ct_value));
         void *d = (void *)(long)ctx->data;
         void *de = (void *)(long)ctx->data_end;
         xdp_nat4_metric_accumulate(d, de, ct_value, true);

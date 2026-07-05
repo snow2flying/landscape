@@ -3,6 +3,7 @@
 
 #include "scan_types.h"
 #include "xdp_common.h"
+#include "../einat_helpers.h"
 
 static __always_inline enum xdp_scan_status xdp_scan_ipv4(struct xdp_md *ctx, u16 l3_offset,
                                                           struct scan_ipv4_idx *idx) {
@@ -39,21 +40,6 @@ static __always_inline enum xdp_scan_status xdp_scan_ipv4(struct xdp_md *ctx, u1
 
     idx->l4_offset = l4_off;
     return XDP_SCAN_OK;
-}
-
-static __always_inline int ipv4_icmp_msg_type(struct icmphdr *icmph) {
-    switch (icmph->type) {
-    case ICMP_DEST_UNREACH:
-    case ICMP_TIME_EXCEEDED:
-    case ICMP_PARAMETERPROB:
-        return ICMP_ERROR_MSG;
-    case ICMP_ECHOREPLY:
-    case ICMP_ECHO:
-    case ICMP_TIMESTAMP:
-    case ICMP_TIMESTAMPREPLY:
-        return ICMP_QUERY_MSG;
-    }
-    return ICMP_ACT_UNSPEC;
 }
 
 static __always_inline enum xdp_scan_status xdp_scan_ipv4_full(struct xdp_md *ctx, u16 l3_offset,
@@ -97,7 +83,7 @@ static __always_inline enum xdp_scan_status xdp_scan_ipv4_full(struct xdp_md *ct
         struct icmphdr *icmph = data + idx->l4_offset;
         if (xdp_no_room(icmph + 1, data_end)) return XDP_SCAN_ERR;
 
-        switch (ipv4_icmp_msg_type(icmph)) {
+        switch (icmp_msg_type(icmph)) {
         case ICMP_ERROR_MSG: {
             idx->icmp_error_l3_offset = idx->l4_offset + ICMP_HDR_LEN;
             barrier_var(idx->icmp_error_l3_offset);

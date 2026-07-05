@@ -33,10 +33,6 @@ const volatile u64 REPORT_INTERVAL = 1E9 * 5;
 
 #define GRESS_MASK (1 << 0)
 
-static __always_inline int bpf_write_port(struct __sk_buff *skb, int port_off, __be16 to_port) {
-    return bpf_skb_store_bytes(skb, port_off, &to_port, sizeof(to_port), 0);
-}
-
 static __always_inline int is_handle_protocol(const u8 protocol) {
     // TODO mDNS
     if (protocol == IPPROTO_TCP || protocol == IPPROTO_UDP || protocol == IPPROTO_ICMP ||
@@ -119,34 +115,7 @@ enum timer_status {
     TIMER_PUSH_QUEUE = 52ULL,
 };
 
-// 所能映射的范围
-struct mapping_range {
-    u16 start;
-    u16 end;
-};
-
-// 用于搜寻可用的端口
-struct search_port_ctx {
-    struct nat_mapping_key ingress_key;
-    struct mapping_range range;
-    u16 remaining_size;
-    // 小端序的端口
-    u16 curr_port;
-    bool found;
-    u64 timeout_interval;
-};
-
-struct search_port_ctx_v4 {
-    struct nat_mapping_key_v4 ingress_key;
-    struct mapping_range range;
-    u16 remaining_size;
-    // 小端序的端口
-    u16 curr_port;
-    bool found;
-    u64 timeout_interval;
-};
-
-static __always_inline bool pkt_allow_initiating_ct(u8 pkt_type) {
+static __always_inline bool pkt_can_begin_ct(u8 pkt_type) {
     return pkt_type == PKT_CONNLESS_V2 || pkt_type == PKT_TCP_SYN_V2;
 }
 

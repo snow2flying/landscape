@@ -3,6 +3,7 @@
 
 #include "scan_types.h"
 #include "xdp_common.h"
+#include "../einat_helpers.h"
 
 static __always_inline enum xdp_scan_status xdp_scan_ipv6(struct xdp_md *ctx, u16 l3_offset,
                                                           struct scan_ipv6_idx *idx) {
@@ -88,20 +89,6 @@ found:
     return XDP_SCAN_OK;
 }
 
-static int ipv6_icmp_msg_type(struct icmp6hdr *icmp6h) {
-    switch (icmp6h->icmp6_type) {
-    case ICMPV6_DEST_UNREACH:
-    case ICMPV6_PKT_TOOBIG:
-    case ICMPV6_TIME_EXCEED:
-    case ICMPV6_PARAMPROB:
-        return ICMP_ERROR_MSG;
-    case ICMPV6_ECHO_REQUEST:
-    case ICMPV6_ECHO_REPLY:
-        return ICMP_QUERY_MSG;
-    }
-    return ICMP_ACT_UNSPEC;
-}
-
 static __always_inline enum xdp_scan_status xdp_scan_ipv6_full(struct xdp_md *ctx, u16 l3_offset,
                                                                struct scan_ipv6_idx *idx) {
     enum xdp_scan_status ret = xdp_scan_ipv6(ctx, l3_offset, idx);
@@ -143,7 +130,7 @@ static __always_inline enum xdp_scan_status xdp_scan_ipv6_full(struct xdp_md *ct
         struct icmp6hdr *icmp6h = data + idx->l4_offset;
         if (xdp_no_room(icmp6h + 1, data_end)) return XDP_SCAN_ERR;
 
-        switch (ipv6_icmp_msg_type(icmp6h)) {
+        switch (icmp6_msg_type(icmp6h)) {
         case ICMP_ERROR_MSG: {
             idx->icmp_error_l3_offset = idx->l4_offset + ICMP6_HDR_LEN;
             barrier_var(idx->icmp_error_l3_offset);

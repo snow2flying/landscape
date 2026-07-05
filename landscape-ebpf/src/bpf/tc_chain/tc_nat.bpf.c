@@ -48,7 +48,7 @@ static __always_inline int tc_nat_v4_egress_do(struct __sk_buff *skb, u32 ifinde
 
     bool is_icmpx_error = idx.icmp_error_l3_offset > 0 && idx.icmp_error_inner_l4_offset > 0;
     u8 nat_l4_protocol = is_icmpx_error ? idx.icmp_error_l4_protocol : idx.l4_protocol;
-    bool allow_create_mapping = !is_icmpx_error && pkt_allow_initiating_ct(idx.pkt_type);
+    bool allow_create_mapping = !is_icmpx_error && pkt_can_begin_ct(idx.pkt_type);
 
     ret = nat4_v3_egress_lookup_or_new_mapping_v4(skb, ifindex, nat_l4_protocol,
                                                   allow_create_mapping, &ip_pair, &nat_egress_value,
@@ -113,7 +113,7 @@ static __always_inline int tc_nat_v4_egress_do(struct __sk_buff *skb, u32 ifinde
     }
 
     if (!is_icmpx_error) {
-        ct_state_transition(idx.pkt_type, NAT_MAPPING_EGRESS, nat4_v3_timer_base(ct_value));
+        nat_ct_advance(idx.pkt_type, NAT_MAPPING_EGRESS, nat4_v3_timer_base(ct_value));
         nat_metric_accumulate(skb, false, nat4_v3_timer_base(ct_value));
     }
 
@@ -191,11 +191,11 @@ static __always_inline int tc_nat_v4_ingress_do(struct __sk_buff *skb, u32 ifind
     };
 
     u64 ingress_state_ref = nat_ingress_value->state_ref;
-    bool do_new_ct = is_static ? (!is_icmpx_error && pkt_allow_initiating_ct(idx.pkt_type))
+    bool do_new_ct = is_static ? (!is_icmpx_error && pkt_can_begin_ct(idx.pkt_type))
                                : (nat_ingress_value->is_allow_reuse &&
                                   nat4_v3_state_get(ingress_state_ref) == NAT4_V3_STATE_ACTIVE &&
                                   nat4_v3_ref_get(ingress_state_ref) > 0 && !is_icmpx_error &&
-                                  pkt_allow_initiating_ct(idx.pkt_type));
+                                  pkt_can_begin_ct(idx.pkt_type));
 
     struct nat4_timer_value_v3 *ct_value = NULL;
     ret = nat4_v3_lookup_or_new_ct(skb, ifindex, nat_l4_protocol, do_new_ct, &server_nat_pair,
@@ -206,7 +206,7 @@ static __always_inline int tc_nat_v4_ingress_do(struct __sk_buff *skb, u32 ifind
     }
 
     if (!is_icmpx_error) {
-        ct_state_transition(idx.pkt_type, NAT_MAPPING_INGRESS, nat4_v3_timer_base(ct_value));
+        nat_ct_advance(idx.pkt_type, NAT_MAPPING_INGRESS, nat4_v3_timer_base(ct_value));
         nat_metric_accumulate(skb, true, nat4_v3_timer_base(ct_value));
     }
 

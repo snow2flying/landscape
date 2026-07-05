@@ -3,6 +3,7 @@
 #include <vmlinux.h>
 #include <bpf/bpf_endian.h>
 #include "landscape_log.h"
+#include "einat_types.h"
 #include "base/mark.h"
 #include "base/tp.h"
 
@@ -133,21 +134,6 @@ static int store_mac_v6(struct __sk_buff *skb, u8 *dst_mac, u8 *src_mac) {
 
     return 0;
 }
-
-// ICMPv4 消息类型
-enum {
-    ICMP_ERROR_MSG,
-    ICMP_QUERY_MSG,
-    ICMP_ACT_UNSPEC,
-    ICMP_ACT_SHOT,
-};
-
-union u_inet_addr {
-    __be32 all[4];
-    __be32 ip;
-    __be32 ip6[4];
-    u8 bits[16];
-};
 
 // only for ipv6
 union u_inet6_addr {

@@ -200,7 +200,7 @@ insert_ct6_timer(const struct nat_timer_key_v6 *key, struct nat_timer_value_v6 *
 
     int ret = bpf_map_update_elem(&nat6_conn_timer, key, val, BPF_NOEXIST);
     if (ret) {
-        ld_bpf_log("failed to insert conntrack entry, err:%d", ret);
+        ld_bpf_log("ct6 timer map insert failed: %d", ret);
         return NULL;
     }
     struct nat_timer_value_v6 *value = bpf_map_lookup_elem(&nat6_conn_timer, key);
@@ -221,15 +221,15 @@ insert_ct6_timer(const struct nat_timer_key_v6 *key, struct nat_timer_value_v6 *
 
     return value;
 delete_timer:
-    ld_bpf_log("setup timer err:%d", ret);
+    ld_bpf_log("ct6 timer setup failed: %d", ret);
     bpf_map_delete_elem(&nat6_conn_timer, key);
     return NULL;
 #undef BPF_LOG_TOPIC
 }
 
-static __always_inline int ct6_state_transition(u8 pkt_type, u8 gress,
-                                                struct nat_timer_value_v6 *ct_timer_value) {
-#define BPF_LOG_TOPIC "ct6_state_transition"
+static __always_inline int nat_ct6_advance(u8 pkt_type, u8 gress,
+                                           struct nat_timer_value_v6 *ct_timer_value) {
+#define BPF_LOG_TOPIC "nat_ct6_advance"
     u64 curr_state, *modify_status = NULL;
     if (gress == NAT_MAPPING_INGRESS) {
         curr_state = ct_timer_value->server_status;
@@ -239,25 +239,25 @@ static __always_inline int ct6_state_transition(u8 pkt_type, u8 gress,
         modify_status = &ct_timer_value->client_status;
     }
 
-#define NEW_STATE(__state)                                                                         \
+#define ADVANCE_STATUS(__state)                                                                    \
     if (!__sync_bool_compare_and_swap(modify_status, curr_state, (__state))) {                     \
         return TC_ACT_SHOT;                                                                        \
     }
 
     if (pkt_type == PKT_CONNLESS_V2) {
-        NEW_STATE(CT_LESS_EST);
+        ADVANCE_STATUS(CT_LESS_EST);
     }
 
     if (pkt_type == PKT_TCP_RST_V2) {
-        NEW_STATE(CT_INIT);
+        ADVANCE_STATUS(CT_INIT);
     }
 
     if (pkt_type == PKT_TCP_SYN_V2) {
-        NEW_STATE(CT_SYN);
+        ADVANCE_STATUS(CT_SYN);
     }
 
     if (pkt_type == PKT_TCP_FIN_V2) {
-        NEW_STATE(CT_FIN);
+        ADVANCE_STATUS(CT_FIN);
     }
 
     u64 prev_state = __sync_lock_test_and_set(&ct_timer_value->status, TIMER_ACTIVE);
@@ -374,7 +374,7 @@ static __always_inline int ipv6_egress_prefix_check_and_replace(struct __sk_buff
 
     struct nat_timer_value_v6 *ct_value = lookup_ct6_egress(skb, idx, ip_pair, npt_id_mask);
     if (ct_value) {
-        ct6_state_transition(idx->pkt_type, NAT_MAPPING_EGRESS, ct_value);
+        nat_ct6_advance(idx->pkt_type, NAT_MAPPING_EGRESS, ct_value);
         nat6_metric_accumulate(skb, false, ct_value);
         goto do_nptv6;
     }
@@ -383,7 +383,7 @@ static __always_inline int ipv6_egress_prefix_check_and_replace(struct __sk_buff
         check_egress_static_mapping_exist(idx->l4_protocol, ip_pair);
 
     bool is_icmpx_error = idx->icmp_error_l3_offset > 0 && idx->icmp_error_inner_l4_offset > 0;
-    bool allow_create = !is_icmpx_error && pkt_allow_initiating_ct(idx->pkt_type);
+    bool allow_create = !is_icmpx_error && pkt_can_begin_ct(idx->pkt_type);
 
     if (!allow_create) {
         if (!static_val) {
@@ -399,7 +399,7 @@ static __always_inline int ipv6_egress_prefix_check_and_replace(struct __sk_buff
     if (!ct_value) {
         return TC_ACT_SHOT;
     }
-    ct6_state_transition(idx->pkt_type, NAT_MAPPING_EGRESS, ct_value);
+    nat_ct6_advance(idx->pkt_type, NAT_MAPPING_EGRESS, ct_value);
     nat6_metric_accumulate(skb, false, ct_value);
 
 do_nptv6:
@@ -592,7 +592,7 @@ static __always_inline int ipv6_ingress_prefix_check_and_replace(struct __sk_buf
     u8 npt_id_mask = (u8)(wan_ip_info->npt_mask >> 56);
 
     bool is_icmpx = idx->icmp_error_l3_offset > 0 && idx->icmp_error_inner_l4_offset > 0;
-    bool allow_create = !is_icmpx && pkt_allow_initiating_ct(idx->pkt_type);
+    bool allow_create = !is_icmpx && pkt_can_begin_ct(idx->pkt_type);
     bool need_prefix_replace = false;
 
     struct nat_timer_value_v6 *ct_value = lookup_ct6_ingress(idx, ip_pair, npt_id_mask);
@@ -614,7 +614,7 @@ static __always_inline int ipv6_ingress_prefix_check_and_replace(struct __sk_buf
         }
 
         COPY_ADDR_FROM(&local_client_prefix, ct_value->client_prefix);
-        ct6_state_transition(idx->pkt_type, NAT_MAPPING_INGRESS, ct_value);
+        nat_ct6_advance(idx->pkt_type, NAT_MAPPING_INGRESS, ct_value);
         nat6_metric_accumulate(skb, true, ct_value);
 
         __be64 dst_prefix;
@@ -655,7 +655,7 @@ static __always_inline int ipv6_ingress_prefix_check_and_replace(struct __sk_buf
 
     ct_value = create_ct6_ingress(skb, idx, ip_pair, npt_id_mask, ifindex, &client_prefix_hint);
     if (ct_value) {
-        ct6_state_transition(idx->pkt_type, NAT_MAPPING_INGRESS, ct_value);
+        nat_ct6_advance(idx->pkt_type, NAT_MAPPING_INGRESS, ct_value);
         nat6_metric_accumulate(skb, true, ct_value);
     }
 

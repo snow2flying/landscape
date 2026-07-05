@@ -7,8 +7,7 @@
 
 #define GRESS_MASK (1 << 0)
 
-static __always_inline bool inet_addr_equal(const union u_inet_addr *a,
-                                            const union u_inet_addr *b) {
+static __always_inline bool inet4_addr_eq(const union u_inet_addr *a, const union u_inet_addr *b) {
     return a->ip == b->ip;
 }
 

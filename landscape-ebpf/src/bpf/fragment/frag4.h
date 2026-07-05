@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2023-2024 Huang-Huang Bao
+// SPDX-License-Identifier: GPL-2.0-or-later
+//
+// The fragment-tracking logic in this file is derived from the einat-ebpf
+// project: https://github.com/EHfive/einat-ebpf
 #ifndef __LD_FRAG4_H__
 #define __LD_FRAG4_H__
 

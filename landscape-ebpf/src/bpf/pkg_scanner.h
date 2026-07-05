@@ -6,6 +6,7 @@
 #include "landscape_log.h"
 #include "landscape.h"
 #include "pkg_def.h"
+#include "einat_helpers.h"
 
 // size limit 5 u32
 // icmp type
@@ -86,18 +87,6 @@ enum packet_scan_depth {
     LD_SCAN_DEPTH_FULL = 3,
 };
 
-union u_ld_ip {
-    __be32 all[4];
-    __be32 ip;
-    __be32 ip6[4];
-    u8 bits[16];
-};
-
-static __always_inline bool ld_ip_addr_equal(const union u_ld_ip *a, const union u_ld_ip *b) {
-    return a->all[0] == b->all[0] && a->all[1] == b->all[1] && a->all[2] == b->all[2] &&
-           a->all[3] == b->all[3];
-}
-
 static __always_inline int scan_ipv4(struct __sk_buff *skb, struct ip_scanner_ctx *scanner_ctx) {
 #define BPF_LOG_TOPIC "scan_ipv4"
 
@@ -177,7 +166,7 @@ static __always_inline int scan_ipv6(struct __sk_buff *skb, struct ip_scanner_ct
             break;
         }
         default:
-            goto found_upper_layer;
+            goto found_l4;
         }
     }
 
@@ -185,12 +174,12 @@ static __always_inline int scan_ipv6(struct __sk_buff *skb, struct ip_scanner_ct
     case NEXTHDR_TCP:
     case NEXTHDR_UDP:
     case NEXTHDR_ICMP:
-        goto found_upper_layer;
+        goto found_l4;
     default:
         return LD_SCAN_ERR;
     }
 
-found_upper_layer:
+found_l4:
     if (frag_hdr_off) {
         if (VALIDATE_READ_DATA(skb, &frag_hdr, frag_hdr_off, sizeof(*frag_hdr))) {
             return TC_ACT_SHOT;
@@ -220,35 +209,6 @@ found_upper_layer:
 
     return LD_SCAN_OK;
 #undef BPF_LOG_TOPIC
-}
-
-static __always_inline int icmp_msg_type(struct icmphdr *icmph) {
-    switch (icmph->type) {
-    case ICMP_DEST_UNREACH:
-    case ICMP_TIME_EXCEEDED:
-    case ICMP_PARAMETERPROB:
-        return ICMP_ERROR_MSG;
-    case ICMP_ECHOREPLY:
-    case ICMP_ECHO:
-    case ICMP_TIMESTAMP:
-    case ICMP_TIMESTAMPREPLY:
-        return ICMP_QUERY_MSG;
-    }
-    return ICMP_ACT_UNSPEC;
-}
-
-static __always_inline int icmp6_msg_type(struct icmp6hdr *icmp6h) {
-    switch (icmp6h->icmp6_type) {
-    case ICMPV6_DEST_UNREACH:
-    case ICMPV6_PKT_TOOBIG:
-    case ICMPV6_TIME_EXCEED:
-    case ICMPV6_PARAMPROB:
-        return ICMP_ERROR_MSG;
-    case ICMPV6_ECHO_REQUEST:
-    case ICMPV6_ECHO_REPLY:
-        return ICMP_QUERY_MSG;
-    }
-    return ICMP_ACT_UNSPEC;
 }
 
 static __always_inline int scan_packet_l3(struct __sk_buff *skb, u32 current_l3_offset,
@@ -356,8 +316,7 @@ static __always_inline int scan_packet_full(struct __sk_buff *skb, u32 current_l
             icmp_src_ip_val = *temp_addr;
 
             if (dst_ip_val != icmp_src_ip_val) {
-                ld_bpf_log("IP destination address does not match source "
-                           "address inside ICMP error message");
+                ld_bpf_log("icmp error drop: inner src ip mismatches outer dst ip");
                 return LD_SCAN_ERR;
             }
             break;
@@ -414,8 +373,7 @@ static __always_inline int scan_packet_full(struct __sk_buff *skb, u32 current_l
             COPY_ADDR_FROM(icmp_src_ip_val.all, temp_addr->all);
 
             if (!ld_ip_addr_equal(&dst_ip_val, &icmp_src_ip_val)) {
-                ld_bpf_log("IP destination address does not match source "
-                           "address inside ICMP error message");
+                ld_bpf_log("icmp error drop: inner src ip mismatches outer dst ip");
                 return LD_SCAN_ERR;
             }
             break;

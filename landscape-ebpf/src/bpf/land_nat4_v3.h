@@ -8,6 +8,7 @@
 #include "nat/nat_maps.h"
 #include "land_wan_ip.h"
 #include "nat/nat_v3_maps.h"
+#include "einat_nat4.h"
 
 volatile const u16 tcp_range_start = 32768;
 volatile const u16 tcp_range_end = 65535;
@@ -17,178 +18,6 @@ volatile const u16 udp_range_end = 65535;
 
 volatile const u16 icmp_range_start = 32768;
 volatile const u16 icmp_range_end = 65535;
-
-static __always_inline int icmpx_err_l3_offset(int l4_off) {
-    return l4_off + sizeof(struct icmphdr);
-}
-
-#define L3_CSUM_REPLACE_OR_SHOT(skb_ptr, csum_offset, old_val, new_val, size)                      \
-    do {                                                                                           \
-        int _ret = bpf_l3_csum_replace(skb_ptr, csum_offset, old_val, new_val, size);              \
-        if (_ret) {                                                                                \
-            bpf_printk("l3_csum_replace err: %d", _ret);                                           \
-            return TC_ACT_SHOT;                                                                    \
-        }                                                                                          \
-    } while (0)
-
-#define L4_CSUM_REPLACE_OR_SHOT(skb_ptr, csum_offset, old_val, new_val, len_plus_flags)            \
-    do {                                                                                           \
-        int _ret = bpf_l4_csum_replace(skb_ptr, csum_offset, old_val, new_val, len_plus_flags);    \
-        if (_ret) {                                                                                \
-            bpf_printk("l4_csum_replace err: %d", _ret);                                           \
-            return TC_ACT_SHOT;                                                                    \
-        }                                                                                          \
-    } while (0)
-
-static __always_inline int ipv4_update_csum_inner_macro(struct __sk_buff *skb, u32 l4_csum_off,
-                                                        __be32 from_addr, __be16 from_port,
-                                                        __be32 to_addr, __be16 to_port,
-                                                        bool l4_pseudo, bool l4_mangled_0) {
-    u16 csum;
-    if (l4_mangled_0) {
-        READ_SKB_U16(skb, l4_csum_off, csum);
-    }
-
-    if (!l4_mangled_0 || csum != 0) {
-        L3_CSUM_REPLACE_OR_SHOT(skb, l4_csum_off, from_port, to_port, 2);
-
-        if (l4_pseudo) {
-            L3_CSUM_REPLACE_OR_SHOT(skb, l4_csum_off, from_addr, to_addr, 4);
-        }
-    }
-}
-
-static __always_inline int ipv4_update_csum_icmp_err_macro(struct __sk_buff *skb, u32 icmp_csum_off,
-                                                           u32 err_ip_check_off,
-                                                           u32 err_l4_csum_off, __be32 from_addr,
-                                                           __be16 from_port, __be32 to_addr,
-                                                           __be16 to_port, bool err_l4_pseudo,
-                                                           bool l4_mangled_0) {
-    u16 prev_csum;
-    u16 curr_csum;
-    u16 *tmp_ptr;
-
-    if (VALIDATE_READ_DATA(skb, &tmp_ptr, err_ip_check_off, sizeof(*tmp_ptr))) {
-        return 1;
-    }
-    prev_csum = *tmp_ptr;
-
-    L3_CSUM_REPLACE_OR_SHOT(skb, err_ip_check_off, from_addr, to_addr, 4);
-
-    if (VALIDATE_READ_DATA(skb, &tmp_ptr, err_ip_check_off, sizeof(*tmp_ptr))) {
-        return 1;
-    }
-    curr_csum = *tmp_ptr;
-    L4_CSUM_REPLACE_OR_SHOT(skb, icmp_csum_off, prev_csum, curr_csum, 2);
-
-    if (VALIDATE_READ_DATA(skb, &tmp_ptr, err_l4_csum_off, sizeof(*tmp_ptr)) == 0) {
-        prev_csum = *tmp_ptr;
-        ipv4_update_csum_inner_macro(skb, err_l4_csum_off, from_addr, from_port, to_addr, to_port,
-                                     err_l4_pseudo, l4_mangled_0);
-
-        if (VALIDATE_READ_DATA(skb, &tmp_ptr, err_l4_csum_off, sizeof(*tmp_ptr))) {
-            return 1;
-        }
-        curr_csum = *tmp_ptr;
-        L4_CSUM_REPLACE_OR_SHOT(skb, icmp_csum_off, prev_csum, curr_csum, 2);
-    }
-
-    L4_CSUM_REPLACE_OR_SHOT(skb, icmp_csum_off, from_addr, to_addr, 4);
-    L4_CSUM_REPLACE_OR_SHOT(skb, icmp_csum_off, from_port, to_port, 2);
-
-    return 0;
-}
-
-static __always_inline int modify_headers_v4(struct __sk_buff *skb, bool is_icmpx_error, u8 nexthdr,
-                                             u32 current_l3_offset, int l4_off, int err_l4_off,
-                                             bool is_modify_source,
-                                             const struct nat_action_v4 *action) {
-#define BPF_LOG_TOPIC "modify_headers_v4"
-    int ret;
-    int l4_to_port_off;
-    int l4_to_check_off;
-    bool l4_check_pseudo;
-    bool l4_check_mangle_0;
-
-    int ip_offset =
-        is_modify_source ? offsetof(struct iphdr, saddr) : offsetof(struct iphdr, daddr);
-
-    ret = bpf_skb_store_bytes(skb, current_l3_offset + ip_offset, &action->to_addr.addr,
-                              sizeof(action->to_addr.addr), 0);
-    if (ret) return ret;
-
-    L3_CSUM_REPLACE_OR_SHOT(skb, current_l3_offset + offsetof(struct iphdr, check),
-                            action->from_addr.addr, action->to_addr.addr, 4);
-
-    if (l4_off == 0) return 0;
-
-    switch (nexthdr) {
-    case IPPROTO_TCP:
-        l4_to_port_off =
-            is_modify_source ? offsetof(struct tcphdr, source) : offsetof(struct tcphdr, dest);
-        l4_to_check_off = offsetof(struct tcphdr, check);
-        l4_check_pseudo = true;
-        l4_check_mangle_0 = false;
-        break;
-    case IPPROTO_UDP:
-        l4_to_port_off =
-            is_modify_source ? offsetof(struct udphdr, source) : offsetof(struct udphdr, dest);
-        l4_to_check_off = offsetof(struct udphdr, check);
-        l4_check_pseudo = true;
-        l4_check_mangle_0 = true;
-        break;
-    case IPPROTO_ICMP:
-        l4_to_port_off = offsetof(struct icmphdr, un.echo.id);
-        l4_to_check_off = offsetof(struct icmphdr, checksum);
-        l4_check_pseudo = false;
-        l4_check_mangle_0 = false;
-        break;
-    default:
-        return 1;
-    }
-
-    if (is_icmpx_error) {
-        if (nexthdr == IPPROTO_TCP || nexthdr == IPPROTO_UDP) {
-            l4_to_port_off =
-                is_modify_source ? offsetof(struct tcphdr, dest) : offsetof(struct tcphdr, source);
-        }
-
-        int icmpx_error_offset =
-            is_modify_source ? offsetof(struct iphdr, daddr) : offsetof(struct iphdr, saddr);
-
-        ret = bpf_skb_store_bytes(skb, icmpx_err_l3_offset(l4_off) + icmpx_error_offset,
-                                  &action->to_addr.addr, sizeof(action->to_addr.addr), 0);
-        if (ret) return ret;
-
-        ret = bpf_write_port(skb, err_l4_off + l4_to_port_off, action->to_port);
-        if (ret) return ret;
-
-        if (ipv4_update_csum_icmp_err_macro(
-                skb, l4_off + offsetof(struct icmphdr, checksum),
-                icmpx_err_l3_offset(l4_off) + offsetof(struct iphdr, check),
-                err_l4_off + l4_to_check_off, action->from_addr.addr, action->from_port,
-                action->to_addr.addr, action->to_port, l4_check_pseudo, l4_check_mangle_0))
-            return TC_ACT_SHOT;
-
-    } else {
-        ret = bpf_write_port(skb, l4_off + l4_to_port_off, action->to_port);
-        if (ret) return ret;
-
-        u32 l4_csum_off = l4_off + l4_to_check_off;
-        u32 flags_mangled = l4_check_mangle_0 ? BPF_F_MARK_MANGLED_0 : 0;
-
-        L4_CSUM_REPLACE_OR_SHOT(skb, l4_csum_off, action->from_port, action->to_port,
-                                2 | flags_mangled);
-
-        if (l4_check_pseudo) {
-            L4_CSUM_REPLACE_OR_SHOT(skb, l4_csum_off, action->from_addr.addr, action->to_addr.addr,
-                                    4 | BPF_F_PSEUDO_HDR | flags_mangled);
-        }
-    }
-
-    return 0;
-#undef BPF_LOG_TOPIC
-}
 
 static __always_inline void nat_metric_accumulate(struct __sk_buff *skb, bool ingress,
                                                   struct nat4_timer_value_v3 *value) {
@@ -237,13 +66,14 @@ static __always_inline int nat_metric_try_report_v4(struct nat_timer_key_v4 *tim
 #undef BPF_LOG_TOPIC
 }
 
-static __always_inline bool ct_change_state(u64 *status_in_value, u64 curr_state, u64 next_state) {
+static __always_inline bool ct_try_set_status(u64 *status_in_value, u64 curr_state,
+                                              u64 next_state) {
     return __sync_bool_compare_and_swap(status_in_value, curr_state, next_state);
 }
 
-static __always_inline int ct_state_transition(u8 pkt_type, u8 gress,
-                                               struct nat4_timer_value_v3 *ct_timer_value) {
-#define BPF_LOG_TOPIC "ct_state_transition"
+static __always_inline int nat_ct_advance(u8 pkt_type, u8 gress,
+                                          struct nat4_timer_value_v3 *ct_timer_value) {
+#define BPF_LOG_TOPIC "nat_ct_advance"
     u64 curr_state, *modify_status = NULL;
     if (gress == NAT_MAPPING_INGRESS) {
         curr_state = ct_timer_value->server_status;
@@ -253,25 +83,25 @@ static __always_inline int ct_state_transition(u8 pkt_type, u8 gress,
         modify_status = &ct_timer_value->client_status;
     }
 
-#define NEW_STATE(__state)                                                                         \
-    if (!ct_change_state(modify_status, curr_state, (__state))) {                                  \
+#define ADVANCE_STATUS(__state)                                                                    \
+    if (!ct_try_set_status(modify_status, curr_state, (__state))) {                                \
         return TC_ACT_SHOT;                                                                        \
     }
 
     if (pkt_type == PKT_CONNLESS_V2) {
-        NEW_STATE(CT_LESS_EST);
+        ADVANCE_STATUS(CT_LESS_EST);
     }
 
     if (pkt_type == PKT_TCP_RST_V2) {
-        NEW_STATE(CT_INIT);
+        ADVANCE_STATUS(CT_INIT);
     }
 
     if (pkt_type == PKT_TCP_SYN_V2) {
-        NEW_STATE(CT_SYN);
+        ADVANCE_STATUS(CT_SYN);
     }
 
     if (pkt_type == PKT_TCP_FIN_V2) {
-        NEW_STATE(CT_FIN);
+        ADVANCE_STATUS(CT_FIN);
     }
 
     u64 prev_state = __sync_lock_test_and_set(&ct_timer_value->status, TIMER_ACTIVE);
@@ -532,7 +362,7 @@ static __always_inline u32 nat4_v3_timer_restart_with_status(struct nat4_timer_v
                                                              u64 current_status, u64 next_status,
                                                              u64 timeout_ns, u64 *next_timeout) {
     if (current_status != next_status &&
-        !ct_change_state(&value->status, current_status, next_status)) {
+        !ct_try_set_status(&value->status, current_status, next_status)) {
         *next_timeout = REPORT_INTERVAL;
         return NAT4_V3_TIMER_STEP_RESTART;
     }

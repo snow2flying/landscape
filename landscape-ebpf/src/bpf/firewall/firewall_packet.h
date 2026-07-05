@@ -11,14 +11,6 @@
 
 #define FIREWALL_ICMP_ERR_PACKET_L4_LEN 8
 
-static __always_inline __be16 firewall_get_icmpx_query_id(struct icmphdr *icmph) {
-    return icmph->un.echo.id;
-}
-
-static __always_inline __be16 firewall_get_icmp6_query_id(struct icmp6hdr *icmp6h) {
-    return icmp6h->icmp6_dataun.u_echo.identifier;
-}
-
 static __always_inline int firewall_read_l4_info(struct __sk_buff *skb, u8 l4_protocol, u32 offset,
                                                  bool icmp_error_inner, struct inet_pair *ip_pair) {
 #define BPF_LOG_TOPIC "firewall_read_l4_info"
@@ -46,7 +38,7 @@ static __always_inline int firewall_read_l4_info(struct __sk_buff *skb, u8 l4_pr
         }
         switch (icmp_msg_type(icmph)) {
         case ICMP_QUERY_MSG:
-            ip_pair->src_port = ip_pair->dst_port = firewall_get_icmpx_query_id(icmph);
+            ip_pair->src_port = ip_pair->dst_port = icmph->un.echo.id;
             break;
         case ICMP_ERROR_MSG:
         case ICMP_ACT_UNSPEC:
@@ -63,7 +55,7 @@ static __always_inline int firewall_read_l4_info(struct __sk_buff *skb, u8 l4_pr
         }
         switch (icmp6_msg_type(icmp6h)) {
         case ICMP_QUERY_MSG:
-            ip_pair->src_port = ip_pair->dst_port = firewall_get_icmp6_query_id(icmp6h);
+            ip_pair->src_port = ip_pair->dst_port = icmp6h->icmp6_dataun.u_echo.identifier;
             break;
         case ICMP_ERROR_MSG:
         case ICMP_ACT_UNSPEC:
