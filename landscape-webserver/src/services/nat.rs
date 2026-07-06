@@ -67,6 +67,11 @@ async fn handle_iface_nat_status(
 ) -> LandscapeApiResult<()> {
     state.validate_zone(&config).await?;
     config.nat_config.validate()?;
+    state
+        .static_nat4_mapping_service
+        .check_dynamic_range_overlap(&config.nat_config)
+        .await
+        .map_err(|e| ServiceConfigError::InvalidConfig { reason: e.to_string() })?;
     state.nat_service.handle_service_config(config).await?;
     LandscapeApiResp::success(())
 }

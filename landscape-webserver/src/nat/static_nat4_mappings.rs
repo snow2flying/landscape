@@ -69,6 +69,11 @@ async fn add_static_nat_mapping_v4(
         .validate_runtime_target(&config)
         .await
         .map_err(|error| ServiceConfigError::InvalidConfig { reason: error.to_string() })?;
+    state
+        .static_nat4_mapping_service
+        .validate_no_dynamic_port_conflict(&config)
+        .await
+        .map_err(|error| ServiceConfigError::InvalidConfig { reason: error.to_string() })?;
     let result = state.static_nat4_mapping_service.checked_set(config).await?;
     LandscapeApiResp::success(result)
 }
@@ -89,6 +94,11 @@ async fn add_many_static_nat_mappings_v4(
         state
             .static_nat4_mapping_service
             .validate_runtime_target(m)
+            .await
+            .map_err(|error| ServiceConfigError::InvalidConfig { reason: error.to_string() })?;
+        state
+            .static_nat4_mapping_service
+            .validate_no_dynamic_port_conflict(m)
             .await
             .map_err(|error| ServiceConfigError::InvalidConfig { reason: error.to_string() })?;
     }
