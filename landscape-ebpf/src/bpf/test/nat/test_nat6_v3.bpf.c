@@ -55,9 +55,8 @@ int handle_ipv6_ingress(struct __sk_buff *skb) {
         return TC_ACT_SHOT;
     }
 
-    ret = is_handle_protocol(idx.l4_protocol);
-    if (ret != TC_ACT_OK) {
-        return ret;
+    if (unlikely(should_nat_skip_protocol(idx.l4_protocol))) {
+        return TC_ACT_OK;
     }
 
     ret = skb_read_ipv6_info(skb, current_l3_offset, &idx, &ip_pair);

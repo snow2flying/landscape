@@ -24,9 +24,6 @@ enum land_frag_type {
 #define CT_FIN 2
 #define CT_LESS_EST 3
 
-// Timer 创建情况
-enum { TIMER_EXIST, TIMER_NOT_FOUND, TIMER_ERROR, TIMER_CREATED };
-
 // IPv6 Next Header protocol numbers (RFC 8200 / IANA)
 #define NEXTHDR_HOP 0
 #define NEXTHDR_TCP 6

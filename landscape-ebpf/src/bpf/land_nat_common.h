@@ -33,14 +33,9 @@ const volatile u64 REPORT_INTERVAL = 1E9 * 5;
 
 #define GRESS_MASK (1 << 0)
 
-static __always_inline int is_handle_protocol(const u8 protocol) {
-    // TODO mDNS
-    if (protocol == IPPROTO_TCP || protocol == IPPROTO_UDP || protocol == IPPROTO_ICMP ||
-        protocol == NEXTHDR_ICMP) {
-        return TC_ACT_OK;
-    } else {
-        return TC_ACT_UNSPEC;
-    }
+static __always_inline bool should_nat_skip_protocol(const u8 protocol) {
+    return !(protocol == IPPROTO_TCP || protocol == IPPROTO_UDP || protocol == IPPROTO_ICMP ||
+             protocol == NEXTHDR_ICMP);
 }
 
 struct nat_mapping_key {
@@ -124,6 +119,19 @@ struct nat_action_v4 {
     __be16 from_port;
     struct inet4_addr to_addr;
     __be16 to_port;
+};
+
+struct nat4_egress_nat_result {
+    __be32 nat_addr;
+    __be16 nat_port;
+    u8 is_created;
+    u8 _pad;
+};
+
+struct nat4_lan_result {
+    __be32 lan_addr;
+    __be16 lan_port;
+    u8 _pad[2];
 };
 
 #endif /* LD_NAT_COMMON_H */

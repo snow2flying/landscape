@@ -31,8 +31,9 @@ static __always_inline int nat_v4_egress(struct xdp_md *ctx) {
     if (xdp_scan_ipv4_full(ctx, sizeof(struct ethhdr), &idx)) return XDP_DROP;
 
     int ret;
-    ret = is_handle_protocol(idx.l4_protocol);
-    if (ret != TC_ACT_OK) return XDP_PASS;
+    if (unlikely(should_nat_skip_protocol(idx.l4_protocol))) {
+        return XDP_PASS;
+    }
 
     struct inet4_pair ip_pair = {};
     if (xdp_read_nat_info4(data, data_end, &idx, &ip_pair)) return XDP_DROP;
@@ -45,95 +46,70 @@ static __always_inline int nat_v4_egress(struct xdp_md *ctx) {
                         &ip_pair.dst_port) != XDP_PASS)
         return XDP_DROP;
 
-    bool is_icmpx_error = idx.l4_protocol == IPPROTO_ICMP && idx.icmp_error_l3_offset != 0;
-    u8 nat_l4_protocol = is_icmpx_error ? idx.icmp_error_l4_protocol : idx.l4_protocol;
-    bool allow_create_mapping = !is_icmpx_error && pkt_can_begin_ct(idx.pkt_type);
+    bool is_icmp_error = idx.icmp_error_l3_offset > 0 && idx.icmp_error_inner_l4_offset > 0;
+    u8 nat_l4_protocol = is_icmp_error ? idx.icmp_error_l4_protocol : idx.l4_protocol;
+    bool allow_create_mapping = !is_icmp_error && pkt_can_begin_ct(idx.pkt_type);
 
-    struct nat4_mapping_value_v3 *nat_egress_value = NULL;
-    struct nat4_mapping_value_v3 *nat_ingress_value = NULL;
+    struct nat4_egress_nat_result result = {};
+    struct nat4_mapping_value_v3 *dyn_ingress = NULL;
     struct nat4_port_queue_value_v3 alloc_item = {};
-    bool created = false;
 
     u32 wan_if = meta.target_ifindex ? meta.target_ifindex : current_ifindex;
-    ret = xdp_nat4_egress_lookup_or_new_mapping_v4(
-        wan_if, meta.mark, nat_l4_protocol, allow_create_mapping, &ip_pair, &nat_egress_value,
-        &nat_ingress_value, &alloc_item, &created);
-    if (ret || !nat_egress_value || !nat_ingress_value) return XDP_DROP;
-
-    bool is_dynamic = nat_egress_value->is_static == 0;
-    bool is_ancestor = ip_pair.dst_addr.addr == nat_egress_value->trigger_addr &&
-                       ip_pair.dst_port == nat_egress_value->trigger_port;
-
-    if (is_dynamic && nat_egress_value->is_allow_reuse == 0 && nat_l4_protocol != IPPROTO_ICMP) {
-        if (!is_ancestor) return XDP_DROP;
+    ret = xdp_nat4_st_egress_lookup(wan_if, nat_l4_protocol, &ip_pair, &result);
+    if (ret) {
+        ret = xdp_nat4_dyn_egress_lookup_and_check(wan_if, meta.mark, nat_l4_protocol,
+                                                   allow_create_mapping, &ip_pair, &result,
+                                                   &dyn_ingress, &alloc_item);
+        if (ret) return XDP_DROP;
     }
 
-    if (is_dynamic && is_ancestor) {
-        u8 allow = get_flow_allow_reuse_port(meta.mark) ? 1 : 0;
-        nat_egress_value->is_allow_reuse = allow;
-        nat_ingress_value->is_allow_reuse = allow;
-    }
-
-    struct inet4_addr nat_addr = {
-        .addr = nat_egress_value->addr,
-    };
-    __be16 nat_port = nat_egress_value->port;
-    if (!is_dynamic) {
-        struct wan_ip_info_key wan_search_key = {
-            .ifindex = wan_if,
-            .l3_protocol = LANDSCAPE_IPV4_TYPE,
-        };
-        struct wan_ip_info_value *wan_ip_info =
-            bpf_map_lookup_elem(&wan_ip_binding, &wan_search_key);
-        if (!wan_ip_info) return XDP_DROP;
-        nat_addr.addr = wan_ip_info->addr.ip;
-    }
-
-    struct inet4_pair server_nat_pair = {
-        .src_addr = ip_pair.dst_addr,
-        .src_port = ip_pair.dst_port,
-        .dst_addr = nat_addr,
-        .dst_port = nat_port,
-    };
+    struct nat_timer_key_v4 ct_key = {0};
+    ct_key.l4proto = nat_l4_protocol;
+    ct_key.pair_ip.src_addr = ip_pair.dst_addr;
+    ct_key.pair_ip.src_port = ip_pair.dst_port;
+    ct_key.pair_ip.dst_addr.addr = result.nat_addr;
+    ct_key.pair_ip.dst_port = result.nat_port;
     if (nat_l4_protocol == IPPROTO_ICMP) {
-        server_nat_pair.src_port = nat_port;
+        ct_key.pair_ip.src_port = result.nat_port;
     }
 
     struct nat4_timer_value_v3 *ct_value = NULL;
-    ret = xdp_nat4_lookup_or_new_ct_egress(
-        data, data_end, meta.mark, wan_if, nat_l4_protocol, allow_create_mapping, &server_nat_pair,
-        &ip_pair.src_addr, ip_pair.src_port, nat_ingress_value, &ct_value, &alloc_item,
-        nat_addr.addr, nat_port, created, is_dynamic);
-
-    if (ret == TIMER_NOT_FOUND || ret == TIMER_ERROR) {
-        if (created && is_dynamic &&
-            nat_ingress_value->state_ref == nat4_v3_state_make(NAT4_V3_STATE_ACTIVE, 0)) {
-            nat4_v3_delete_mapping_pair(nat_l4_protocol, nat_addr.addr, nat_port,
-                                        ip_pair.src_addr.addr, ip_pair.src_port);
-            (void)nat4_v3_queue_push(nat_l4_protocol, &alloc_item);
+    ret = xdp_nat4_ct_resolve(&ct_key, dyn_ingress, &ct_value);
+    if (ret && allow_create_mapping) {
+        ret = xdp_nat4_ct_create(meta.mark, wan_if, &ct_key, &ip_pair.src_addr, ip_pair.src_port,
+                                 NAT_MAPPING_EGRESS, dyn_ingress, &ct_value);
+        if (ret) {
+            if (result.is_created && dyn_ingress &&
+                dyn_ingress->state_ref == nat4_v3_state_make(NAT4_V3_STATE_ACTIVE, 0)) {
+                nat4_v3_delete_mapping_pair(nat_l4_protocol, result.nat_addr, result.nat_port,
+                                            ip_pair.src_addr.addr, ip_pair.src_port);
+                (void)nat4_v3_queue_push(nat_l4_protocol, &alloc_item);
+            }
+            return XDP_DROP;
         }
+    } else if (ret) {
         return XDP_DROP;
     }
 
-    if (!is_icmpx_error) {
+    if (!is_icmp_error) {
         nat_ct_advance(idx.pkt_type, NAT_MAPPING_EGRESS, nat4_v3_timer_base(ct_value));
-        void *d = (void *)(long)ctx->data;
-        void *de = (void *)(long)ctx->data_end;
-        xdp_nat4_metric_accumulate(d, de, ct_value, false);
+        data = (void *)(long)ctx->data;
+        data_end = (void *)(long)ctx->data_end;
+        xdp_nat4_metric_accumulate(data, data_end, ct_value, false);
     }
 
     struct nat_action_v4 action = {
         .from_addr = ip_pair.src_addr,
         .from_port = ip_pair.src_port,
-        .to_addr = nat_addr,
-        .to_port = nat_port,
+        .to_addr.addr = result.nat_addr,
+        .to_port = result.nat_port,
     };
 
-    void *d = (void *)(long)ctx->data;
-    void *de = (void *)(long)ctx->data_end;
-    if (xdp_modify_headers_v4(d, de, idx.l4_offset, idx.l4_protocol, true, &action, is_icmpx_error,
-                              idx.icmp_error_l3_offset, idx.icmp_error_inner_l4_offset,
-                              idx.icmp_error_l4_protocol))
+    data = (void *)(long)ctx->data;
+    data_end = (void *)(long)ctx->data_end;
+    if (xdp_modify_headers_v4(data, data_end, idx.l4_offset, idx.l4_protocol, true, &action,
+                              is_icmp_error, idx.icmp_error_l3_offset,
+                              idx.icmp_error_inner_l4_offset, idx.icmp_error_l4_protocol))
         return XDP_DROP;
 
     return XDP_PASS;
@@ -151,8 +127,9 @@ static __always_inline int nat_v4_ingress(struct xdp_md *ctx) {
     if (xdp_scan_ipv4_full(ctx, sizeof(struct ethhdr), &idx)) return XDP_DROP;
 
     int ret;
-    ret = is_handle_protocol(idx.l4_protocol);
-    if (ret != TC_ACT_OK) return XDP_PASS;
+    if (unlikely(should_nat_skip_protocol(idx.l4_protocol))) {
+        return XDP_PASS;
+    }
 
     struct inet4_pair ip_pair = {};
     if (xdp_read_nat_info4(data, data_end, &idx, &ip_pair)) return XDP_DROP;
@@ -165,93 +142,62 @@ static __always_inline int nat_v4_ingress(struct xdp_md *ctx) {
                         &ip_pair.dst_port) != XDP_PASS)
         return XDP_DROP;
 
-    bool is_icmpx_error = idx.l4_protocol == IPPROTO_ICMP && idx.icmp_error_l3_offset != 0;
-    u8 nat_l4_protocol = is_icmpx_error ? idx.icmp_error_l4_protocol : idx.l4_protocol;
+    bool is_icmp_error = idx.icmp_error_l3_offset > 0 && idx.icmp_error_inner_l4_offset > 0;
+    u8 nat_l4_protocol = is_icmp_error ? idx.icmp_error_l4_protocol : idx.l4_protocol;
 
-    struct nat4_mapping_value_v3 *nat_ingress_value = NULL;
+    struct nat4_lan_result result = {};
+    struct nat4_mapping_value_v3 *dyn_ingress = NULL;
 
-    struct nat_mapping_key_v4 ingress_key = {
-        .gress = NAT_MAPPING_INGRESS,
-        .l4proto = nat_l4_protocol,
-        .from_port = ip_pair.dst_port,
-        .from_addr = ip_pair.dst_addr.addr,
-    };
-
-    struct nat4_mapping_value_v3 *dynamic_value = bpf_map_lookup_elem(&nat4_dyn_map, &ingress_key);
-    if (!dynamic_value) {
-        ingress_key.from_addr = 0;
-        nat_ingress_value = bpf_map_lookup_elem(&nat4_st_map, &ingress_key);
-        if (!nat_ingress_value) return XDP_DROP;
-    } else {
-        struct nat_mapping_key_v4 egress_key = {
-            .gress = NAT_MAPPING_EGRESS,
-            .l4proto = nat_l4_protocol,
-            .from_port = dynamic_value->port,
-            .from_addr = dynamic_value->addr,
-        };
-        struct nat4_mapping_value_v3 *egress_value =
-            bpf_map_lookup_elem(&nat4_dyn_map, &egress_key);
-        if (!egress_value || egress_value->addr != ip_pair.dst_addr.addr ||
-            egress_value->port != ip_pair.dst_port) {
-            bpf_map_delete_elem(&nat4_dyn_map, &ingress_key);
-            return XDP_DROP;
-        }
-        nat_ingress_value = dynamic_value;
-    }
-
-    bool is_static = nat_ingress_value->is_static != 0;
-
-    if (!is_static && nat_ingress_value->is_allow_reuse == 0 && nat_l4_protocol != IPPROTO_ICMP) {
-        if (ip_pair.src_addr.addr != nat_ingress_value->trigger_addr ||
-            ip_pair.src_port != nat_ingress_value->trigger_port) {
-            return XDP_DROP;
-        }
-    }
-
-    if (is_static) {
+    bool do_new_ct;
+    ret = xdp_nat4_st_ingress_lookup(nat_l4_protocol, &ip_pair, &result);
+    if (ret == 0) {
         meta.mark = replace_cache_mask(meta.mark, INGRESS_STATIC_MARK);
         void *dm = (void *)(long)ctx->data_meta;
-        if (dm + sizeof(meta) <= data)
+        if ((void *)(dm + sizeof(meta)) <= data)
             __builtin_memcpy(dm, &meta, sizeof(meta));
         else
             xdp_set_meta(ctx, &meta);
+        do_new_ct = !is_icmp_error && pkt_can_begin_ct(idx.pkt_type);
+    } else {
+        ret =
+            xdp_nat4_dyn_ingress_lookup_and_check(nat_l4_protocol, &ip_pair, &result, &dyn_ingress);
+        if (ret) return XDP_DROP;
+        u64 sr = dyn_ingress->state_ref;
+        do_new_ct = (dyn_ingress->is_allow_reuse && nat4_v3_state_get(sr) == NAT4_V3_STATE_ACTIVE &&
+                     nat4_v3_ref_get(sr) > 0 && !is_icmp_error && pkt_can_begin_ct(idx.pkt_type));
     }
 
     struct inet4_addr lan_ip = {0};
-    __be16 lan_port = 0;
-    if (is_static && nat_ingress_value->addr == 0) {
+    __be16 lan_port;
+    if (dyn_ingress == NULL && result.lan_addr == 0) {
         lan_ip.addr = ip_pair.dst_addr.addr;
     } else {
-        lan_ip.addr = nat_ingress_value->addr;
+        lan_ip.addr = result.lan_addr;
     }
-    lan_port = nat_ingress_value->port;
+    lan_port = result.lan_port;
 
-    struct inet4_pair server_nat_pair = {
-        .src_addr = ip_pair.src_addr,
-        .src_port = ip_pair.src_port,
-        .dst_addr = ip_pair.dst_addr,
-        .dst_port = ip_pair.dst_port,
-    };
-
-    u64 ingress_state_ref = nat_ingress_value->state_ref;
-    bool do_new_ct = is_static ? (!is_icmpx_error && pkt_can_begin_ct(idx.pkt_type))
-                               : (nat_ingress_value->is_allow_reuse &&
-                                  nat4_v3_state_get(ingress_state_ref) == NAT4_V3_STATE_ACTIVE &&
-                                  nat4_v3_ref_get(ingress_state_ref) > 0 && !is_icmpx_error &&
-                                  pkt_can_begin_ct(idx.pkt_type));
+    struct nat_timer_key_v4 ct_key = {0};
+    ct_key.l4proto = nat_l4_protocol;
+    ct_key.pair_ip.src_addr = ip_pair.src_addr;
+    ct_key.pair_ip.src_port = ip_pair.src_port;
+    ct_key.pair_ip.dst_addr = ip_pair.dst_addr;
+    ct_key.pair_ip.dst_port = ip_pair.dst_port;
 
     struct nat4_timer_value_v3 *ct_value = NULL;
-    ret = xdp_nat4_lookup_or_new_ct_ingress(data, data_end, meta.mark, current_ifindex,
-                                            nat_l4_protocol, do_new_ct, &server_nat_pair, &lan_ip,
-                                            lan_port, nat_ingress_value, &ct_value);
+    ret = xdp_nat4_ct_resolve(&ct_key, dyn_ingress, &ct_value);
+    if (ret && do_new_ct) {
+        ret = xdp_nat4_ct_create(meta.mark, current_ifindex, &ct_key, &lan_ip, lan_port,
+                                 NAT_MAPPING_INGRESS, dyn_ingress, &ct_value);
+        if (ret) return XDP_DROP;
+    } else if (ret) {
+        return XDP_DROP;
+    }
 
-    if (ret == TIMER_NOT_FOUND || ret == TIMER_ERROR) return XDP_DROP;
-
-    if (!is_icmpx_error) {
+    if (!is_icmp_error) {
         nat_ct_advance(idx.pkt_type, NAT_MAPPING_INGRESS, nat4_v3_timer_base(ct_value));
-        void *d = (void *)(long)ctx->data;
-        void *de = (void *)(long)ctx->data_end;
-        xdp_nat4_metric_accumulate(d, de, ct_value, true);
+        data = (void *)(long)ctx->data;
+        data_end = (void *)(long)ctx->data_end;
+        xdp_nat4_metric_accumulate(data, data_end, ct_value, true);
     }
 
     struct nat_action_v4 action = {
@@ -261,11 +207,11 @@ static __always_inline int nat_v4_ingress(struct xdp_md *ctx) {
         .to_port = lan_port,
     };
 
-    void *d = (void *)(long)ctx->data;
-    void *de = (void *)(long)ctx->data_end;
-    if (xdp_modify_headers_v4(d, de, idx.l4_offset, idx.l4_protocol, false, &action, is_icmpx_error,
-                              idx.icmp_error_l3_offset, idx.icmp_error_inner_l4_offset,
-                              idx.icmp_error_l4_protocol))
+    data = (void *)(long)ctx->data;
+    data_end = (void *)(long)ctx->data_end;
+    if (xdp_modify_headers_v4(data, data_end, idx.l4_offset, idx.l4_protocol, false, &action,
+                              is_icmp_error, idx.icmp_error_l3_offset,
+                              idx.icmp_error_inner_l4_offset, idx.icmp_error_l4_protocol))
         return XDP_DROP;
 
     return XDP_PASS;
@@ -283,8 +229,9 @@ static __always_inline int nat_v6_egress(struct xdp_md *ctx) {
     if (xdp_scan_ipv6_full(ctx, sizeof(struct ethhdr), &idx)) return XDP_DROP;
 
     int ret;
-    ret = is_handle_protocol(idx.l4_protocol);
-    if (ret != TC_ACT_OK) return XDP_PASS;
+    if (unlikely(should_nat_skip_protocol(idx.l4_protocol))) {
+        return XDP_PASS;
+    }
 
     struct ipv6hdr *ip6h = data + sizeof(struct ethhdr);
     if ((void *)(ip6h + 1) > data_end) return XDP_PASS;
@@ -321,8 +268,9 @@ static __always_inline int nat_v6_ingress(struct xdp_md *ctx) {
     if (xdp_scan_ipv6_full(ctx, sizeof(struct ethhdr), &idx)) return XDP_DROP;
 
     int ret;
-    ret = is_handle_protocol(idx.l4_protocol);
-    if (ret != TC_ACT_OK) return XDP_PASS;
+    if (unlikely(should_nat_skip_protocol(idx.l4_protocol))) {
+        return XDP_PASS;
+    }
 
     struct ipv6hdr *ip6h = data + sizeof(struct ethhdr);
     if ((void *)(ip6h + 1) > data_end) return XDP_PASS;
