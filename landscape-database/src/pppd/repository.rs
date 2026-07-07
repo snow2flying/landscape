@@ -1,4 +1,4 @@
-use landscape_common::{error::LdError, iface::ppp::PPPDServiceConfig};
+use landscape_common::{error::LdError, wan_service::pppd::PPPDServiceConfig};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 use super::entity::{

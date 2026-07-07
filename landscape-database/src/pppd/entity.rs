@@ -1,5 +1,5 @@
 use crate::repository::UpdateActiveModel;
-use landscape_common::iface::ppp::{PPPDConfig, PPPDServiceConfig};
+use landscape_common::wan_service::pppd::{PPPDConfig, PPPDServiceConfig};
 use sea_orm::{entity::prelude::*, ActiveValue::Set};
 use serde::{Deserialize, Serialize};
 

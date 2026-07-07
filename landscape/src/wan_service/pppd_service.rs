@@ -14,16 +14,16 @@ use landscape_common::database::LandscapeStore;
 use landscape_common::global_const::default_router::RouteInfo;
 use landscape_common::global_const::default_router::RouteType;
 use landscape_common::global_const::default_router::LD_ALL_ROUTERS;
-use landscape_common::iface::ppp::PPPDConfig;
 use landscape_common::service::controller::ControllerService;
 use landscape_common::service::manager::ServiceManager;
 use landscape_common::service::ServiceStatus;
+use landscape_common::wan_service::pppd::PPPDConfig;
 use landscape_common::{
     concurrency::{
         short_thread_name, spawn_named_thread, spawn_task_with_resource, task_label, thread_name,
     },
-    iface::ppp::PPPDServiceConfig,
     service::{manager::ServiceStarterTrait, WatchService},
+    wan_service::pppd::PPPDServiceConfig,
 };
 use landscape_database::pppd::repository::PPPDServiceRepository;
 use landscape_database::provider::LandscapeDBServiceProvider;

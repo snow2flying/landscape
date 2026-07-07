@@ -23,7 +23,6 @@ use crate::geo::{GeoIpSourceConfig, GeoSiteSourceConfig};
 use crate::iface::config::NetworkIfaceConfig;
 use crate::iface::ip_config::IfaceIpServiceConfig;
 use crate::iface::mss_clamp::MSSClampServiceConfig;
-use crate::iface::ppp::PPPDServiceConfig;
 use crate::iface::wifi::WifiServiceConfig;
 use crate::ip_mark::WanIpRuleConfig;
 use crate::ipv6::lan::LanIPv6ServiceConfigV2;
@@ -31,6 +30,7 @@ use crate::ipv6::ra::IPV6RAServiceConfig;
 use crate::route::lan::RouteLanServiceConfig;
 use crate::route::wan::RouteWanServiceConfig;
 use crate::wan_service::nat::config::NatServiceConfig;
+use crate::wan_service::pppd::PPPDServiceConfig;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
