@@ -5,6 +5,7 @@ pub use landscape_macro::LdApiError;
 
 pub mod api_response;
 pub mod args;
+pub mod lan_service;
 pub mod lan_services;
 
 pub mod concurrency;

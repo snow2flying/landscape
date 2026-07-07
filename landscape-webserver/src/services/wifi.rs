@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::extract::{Path, State};
 use landscape_common::api_response::LandscapeApiResp as CommonApiResp;
-use landscape_common::iface::wifi::WifiServiceConfig;
+use landscape_common::lan_service::ap::WifiServiceConfig;
 use landscape_common::service::controller::ControllerService;
 use landscape_common::service::{ServiceStatus, WatchService};
 use utoipa_axum::router::OpenApiRouter;

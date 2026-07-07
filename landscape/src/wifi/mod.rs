@@ -4,7 +4,7 @@ use landscape_common::{
     concurrency::{
         short_thread_name, spawn_named_thread, spawn_task_with_resource, task_label, thread_name,
     },
-    iface::wifi::WifiServiceConfig,
+    lan_service::ap::WifiServiceConfig,
     service::{
         controller::ControllerService,
         manager::{ServiceManager, ServiceStarterTrait},
