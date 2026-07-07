@@ -2,13 +2,13 @@ use landscape_common::database::LandscapeStore;
 use landscape_common::event::hub::IfaceEventReader;
 use landscape_common::{
     concurrency::{spawn_task, spawn_task_with_resource, task_label},
-    iface::mss_clamp::MSSClampServiceConfig,
     observer::IfaceObserverAction,
     service::{
         controller::ControllerService,
         manager::{ServiceManager, ServiceStarterTrait},
         ServiceStatus, WatchService,
     },
+    wan_service::mss_clamp::MSSClampServiceConfig,
 };
 use landscape_database::{
     mss_clamp::repository::MssClampServiceRepository, provider::LandscapeDBServiceProvider,

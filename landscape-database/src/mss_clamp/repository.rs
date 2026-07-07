@@ -1,4 +1,4 @@
-use landscape_common::iface::mss_clamp::MSSClampServiceConfig;
+use landscape_common::wan_service::mss_clamp::MSSClampServiceConfig;
 use sea_orm::DatabaseConnection;
 
 use super::entity::{
