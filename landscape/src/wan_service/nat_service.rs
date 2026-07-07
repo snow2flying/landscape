@@ -3,9 +3,9 @@ use landscape_common::event::hub::IfaceEventReader;
 use landscape_common::observer::IfaceObserverAction;
 use landscape_common::service::controller::ControllerService;
 use landscape_common::service::manager::ServiceManager;
+use landscape_common::wan_service::nat::config::{NatConfig, NatServiceConfig};
 use landscape_common::{
     concurrency::{spawn_task, spawn_task_with_resource, task_label},
-    iface::nat::{NatConfig, NatServiceConfig},
     service::{manager::ServiceStarterTrait, ServiceStatus, WatchService},
 };
 use landscape_database::nat::repository::NatServiceRepository;

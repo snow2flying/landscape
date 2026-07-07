@@ -1,4 +1,4 @@
-use landscape_common::iface::nat::RuntimeStaticNatMappingV4Config;
+use landscape_common::config_service::static_nat::config4::RuntimeStaticNatMappingV4Config;
 use libbpf_rs::MapCore;
 
 use crate::bpf_error::LdEbpfResult;

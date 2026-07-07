@@ -1,12 +1,15 @@
 use std::net::Ipv4Addr;
 
+use landscape_common::config_service::static_nat::config::StaticMapPair;
+use landscape_common::config_service::static_nat::config4::{
+    StaticNatMappingV4Config, StaticNatV4Target,
+};
+use landscape_common::config_service::static_nat::error::StaticNatError;
 use landscape_common::database::LandscapeStore;
 use landscape_common::error::LdError;
 use landscape_common::event::hub::EnrolledDeviceEventReader;
-use landscape_common::iface::nat::{
-    NatConfig, StaticMapPair, StaticNatError, StaticNatMappingV4Config, StaticNatV4Target,
-};
 use landscape_common::utils::time::get_f64_timestamp;
+use landscape_common::wan_service::nat::config::NatConfig;
 use landscape_common::LANDSCAPE_DEFAULE_DHCP_V4_CLIENT_PORT;
 use landscape_database::nat::repository::NatServiceRepository;
 use landscape_database::provider::LandscapeDBServiceProvider;

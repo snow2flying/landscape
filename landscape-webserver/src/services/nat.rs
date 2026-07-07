@@ -2,13 +2,12 @@ use std::collections::HashMap;
 
 use axum::extract::{Path, State};
 use landscape_common::api_response::LandscapeApiResp as CommonApiResp;
-use landscape_common::iface::nat::NatServiceConfig;
 use landscape_common::service::controller::ControllerService;
 use landscape_common::service::{ServiceStatus, WatchService};
+use landscape_common::wan_service::nat::config::NatServiceConfig;
+use landscape_common::wan_service::nat::error::NatServiceError;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-
-use landscape_common::service::ServiceConfigError;
 
 use crate::api::JsonBody;
 use crate::LandscapeApp;
@@ -47,10 +46,11 @@ async fn get_iface_nat_config(
     State(state): State<LandscapeApp>,
     Path(iface_name): Path<String>,
 ) -> LandscapeApiResult<NatServiceConfig> {
+    let key = iface_name.clone();
     if let Some(iface_config) = state.nat_service.get_config_by_name(iface_name).await {
         LandscapeApiResp::success(iface_config)
     } else {
-        Err(ServiceConfigError::NotFound { service_name: "Nat" })?
+        Err(NatServiceError::NotFound(key))?
     }
 }
 

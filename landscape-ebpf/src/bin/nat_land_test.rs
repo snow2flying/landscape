@@ -1,4 +1,4 @@
-use landscape_common::iface::nat::NatConfig;
+use landscape_common::wan_service::nat::config::NatConfig;
 use landscape_ebpf::stages::nat::init_nat;
 use std::net::Ipv4Addr;
 

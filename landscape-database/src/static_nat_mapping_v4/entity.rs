@@ -1,4 +1,6 @@
-use landscape_common::iface::nat::{StaticNatMappingV4Config, StaticNatV4Target};
+use landscape_common::config_service::static_nat::config4::{
+    StaticNatMappingV4Config, StaticNatV4Target,
+};
 use sea_orm::{entity::prelude::*, ActiveValue::Set};
 use serde::{Deserialize, Serialize};
 

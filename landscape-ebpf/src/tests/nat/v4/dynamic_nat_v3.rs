@@ -4,8 +4,8 @@ use std::{
 };
 
 use etherparse::{icmpv4, Icmpv4Type, PacketBuilder};
-use landscape_common::iface::nat::NatConfig;
 use landscape_common::net::MacAddr;
+use landscape_common::wan_service::nat::config::NatConfig;
 use libbpf_rs::{
     skel::{OpenSkel, SkelBuilder as _},
     MapCore, MapFlags, ProgramInput,

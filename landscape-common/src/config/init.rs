@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::cert::account::CertAccountConfig;
 use crate::cert::order::CertConfig;
 use crate::config::settings::LandscapeConfig;
+use crate::config_service::static_nat::config4::StaticNatMappingV4Config;
+use crate::config_service::static_nat::config6::StaticNatMappingV6Config;
 use crate::ddns::DdnsJob;
 use crate::dhcp::v4_server::config::DHCPv4ServiceConfig;
 use crate::dhcp::v6_client::config::IPV6PDServiceConfig;
@@ -21,7 +23,6 @@ use crate::geo::{GeoIpSourceConfig, GeoSiteSourceConfig};
 use crate::iface::config::NetworkIfaceConfig;
 use crate::iface::ip_config::IfaceIpServiceConfig;
 use crate::iface::mss_clamp::MSSClampServiceConfig;
-use crate::iface::nat::{StaticNatMappingV4Config, StaticNatMappingV6Config};
 use crate::iface::ppp::PPPDServiceConfig;
 use crate::iface::wifi::WifiServiceConfig;
 use crate::ip_mark::WanIpRuleConfig;
@@ -29,6 +30,7 @@ use crate::ipv6::lan::LanIPv6ServiceConfigV2;
 use crate::ipv6::ra::IPV6RAServiceConfig;
 use crate::route::lan::RouteLanServiceConfig;
 use crate::route::wan::RouteWanServiceConfig;
+use crate::wan_service::nat::config::NatServiceConfig;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -40,7 +42,7 @@ pub struct InitConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ipconfigs: Vec<IfaceIpServiceConfig>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub nats: Vec<crate::iface::nat::NatServiceConfig>,
+    pub nats: Vec<NatServiceConfig>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<FlowWanServiceConfig>,
     #[serde(skip_serializing_if = "Vec::is_empty")]

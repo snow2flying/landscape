@@ -5,6 +5,7 @@ use axum::Json;
 use landscape_common::api_response::LandscapeApiResp as CommonLandscapeApiResp;
 use landscape_common::cert::CertError;
 use landscape_common::config::InitConfigError;
+use landscape_common::config_service::static_nat::error::StaticNatError;
 use landscape_common::ddns::DdnsError;
 use landscape_common::dhcp::DhcpError;
 use landscape_common::dns::check::DnsCheckError;
@@ -19,9 +20,9 @@ use landscape_common::firewall::FirewallRuleError;
 use landscape_common::flow::FlowRuleError;
 use landscape_common::gateway::GatewayError;
 use landscape_common::geo::{GeoIpError, GeoSiteError};
-use landscape_common::iface::nat::StaticNatError;
 use landscape_common::ip_mark::DstIpRuleError;
 use landscape_common::service::ServiceConfigError;
+use landscape_common::wan_service::nat::error::NatServiceError;
 
 use crate::api::LandscapeApiResp;
 use crate::auth::error::AuthError;
@@ -58,6 +59,8 @@ pub enum LandscapeApiError {
     GeoIp(#[from] GeoIpError),
     #[error(transparent)]
     StaticNat(#[from] StaticNatError),
+    #[error(transparent)]
+    NatService(#[from] NatServiceError),
     #[error(transparent)]
     DstIpRule(#[from] DstIpRuleError),
     #[error(transparent)]
@@ -101,6 +104,7 @@ impl LandscapeApiError {
             Self::GeoSite(e) => e.error_id(),
             Self::GeoIp(e) => e.error_id(),
             Self::StaticNat(e) => e.error_id(),
+            Self::NatService(e) => e.error_id(),
             Self::DstIpRule(e) => e.error_id(),
             Self::EnrolledDevice(e) => e.error_id(),
             Self::ServiceConfig(e) => e.error_id(),
@@ -134,6 +138,7 @@ impl LandscapeApiError {
             Self::GeoSite(e) => StatusCode::from_u16(e.http_status_code()).unwrap(),
             Self::GeoIp(e) => StatusCode::from_u16(e.http_status_code()).unwrap(),
             Self::StaticNat(e) => StatusCode::from_u16(e.http_status_code()).unwrap(),
+            Self::NatService(e) => StatusCode::from_u16(e.http_status_code()).unwrap(),
             Self::DstIpRule(e) => StatusCode::from_u16(e.http_status_code()).unwrap(),
             Self::EnrolledDevice(e) => StatusCode::from_u16(e.http_status_code()).unwrap(),
             Self::ServiceConfig(e) => StatusCode::from_u16(e.http_status_code()).unwrap(),
@@ -167,6 +172,7 @@ impl LandscapeApiError {
             Self::GeoSite(e) => e.error_args(),
             Self::GeoIp(e) => e.error_args(),
             Self::StaticNat(e) => e.error_args(),
+            Self::NatService(e) => e.error_args(),
             Self::DstIpRule(e) => e.error_args(),
             Self::EnrolledDevice(e) => e.error_args(),
             Self::ServiceConfig(e) => e.error_args(),

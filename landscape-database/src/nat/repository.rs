@@ -1,5 +1,5 @@
 use landscape_common::error::LdError;
-use landscape_common::iface::nat::NatServiceConfig;
+use landscape_common::wan_service::nat::config::NatServiceConfig;
 use migration::Expr;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Value};
 
@@ -91,10 +91,11 @@ crate::impl_repository!(
 
 #[cfg(test)]
 mod tests {
-    use landscape_common::database::LandscapeStore;
-    use landscape_common::iface::nat::{
-        StaticMapPair, StaticNatMappingV4Config, StaticNatV4Target,
+    use landscape_common::config_service::static_nat::config::StaticMapPair;
+    use landscape_common::config_service::static_nat::config4::{
+        StaticNatMappingV4Config, StaticNatV4Target,
     };
+    use landscape_common::database::LandscapeStore;
     use sea_orm::prelude::Uuid;
 
     use crate::provider::LandscapeDBServiceProvider;

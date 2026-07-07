@@ -1,6 +1,6 @@
 use std::os::fd::AsRawFd;
 
-use landscape_common::iface::nat::NatConfig;
+use landscape_common::wan_service::nat::config::NatConfig;
 
 use crate::bpf_ctx;
 use crate::bpf_error::LdEbpfResult;

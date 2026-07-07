@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use landscape_common::config_service::static_nat::config::{
+    RuntimeStaticNatMappingConfig, StaticNatMappingConfig, StaticNatTarget,
+};
+use landscape_common::config_service::static_nat::error::StaticNatError;
 use landscape_common::enrolled_device::EnrolledDevice;
 use landscape_common::error::LdError;
-use landscape_common::iface::nat::{
-    RuntimeStaticNatMappingConfig, StaticNatError, StaticNatMappingConfig, StaticNatTarget,
-};
 use landscape_common::ipv6::lan::{
     LanIPv6ServiceConfigV2, LanPrefixGroupConfig, PrefixParentSource,
 };

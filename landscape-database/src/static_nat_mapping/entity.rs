@@ -1,5 +1,7 @@
 use crate::repository::UpdateActiveModel;
-use landscape_common::iface::nat::{StaticNatMappingConfig, StaticNatTarget};
+use landscape_common::config_service::static_nat::config::{
+    StaticNatMappingConfig, StaticNatTarget,
+};
 use sea_orm::{entity::prelude::*, ActiveValue::Set};
 use serde::{Deserialize, Serialize};
 

@@ -1,5 +1,5 @@
 use crate::repository::UpdateActiveModel;
-use landscape_common::iface::nat::NatServiceConfig;
+use landscape_common::wan_service::nat::config::{NatConfig, NatServiceConfig};
 use sea_orm::{entity::prelude::*, ActiveValue::Set};
 use serde::{Deserialize, Serialize};
 
@@ -40,7 +40,7 @@ impl From<Model> for NatServiceConfig {
         NatServiceConfig {
             iface_name: model.iface_name,
             enable: model.enable,
-            nat_config: landscape_common::iface::nat::NatConfig {
+            nat_config: NatConfig {
                 tcp_range: model.tcp_range_start..model.tcp_range_end,
                 udp_range: model.udp_range_start..model.udp_range_end,
                 icmp_in_range: model.icmp_in_range_start..model.icmp_in_range_end,

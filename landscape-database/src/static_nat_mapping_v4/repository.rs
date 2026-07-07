@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use landscape_common::config_service::static_nat::config4::{
+    RuntimeStaticNatMappingV4Config, StaticNatMappingV4Config, StaticNatV4Target,
+};
+use landscape_common::config_service::static_nat::error::StaticNatError;
 use landscape_common::enrolled_device::EnrolledDevice;
 use landscape_common::error::LdError;
-use landscape_common::iface::nat::{
-    RuntimeStaticNatMappingV4Config, StaticNatError, StaticNatMappingV4Config, StaticNatV4Target,
-};
 use migration::Expr;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Value};
 
@@ -142,10 +143,12 @@ crate::impl_repository!(
 
 #[cfg(test)]
 mod tests {
-    use landscape_common::database::LandscapeStore;
-    use landscape_common::iface::nat::{
-        NatConfig, NatServiceConfig, StaticMapPair, StaticNatMappingV4Config, StaticNatV4Target,
+    use landscape_common::config_service::static_nat::config::StaticMapPair;
+    use landscape_common::config_service::static_nat::config4::{
+        StaticNatMappingV4Config, StaticNatV4Target,
     };
+    use landscape_common::database::LandscapeStore;
+    use landscape_common::wan_service::nat::config::{NatConfig, NatServiceConfig};
     use sea_orm::prelude::Uuid;
 
     use crate::provider::LandscapeDBServiceProvider;

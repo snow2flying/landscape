@@ -1,4 +1,6 @@
-use landscape_common::iface::nat::{RuntimeStaticNatMappingV6Config, StaticNatV6PortConfig};
+use landscape_common::config_service::static_nat::config6::{
+    RuntimeStaticNatMappingV6Config, StaticNatV6PortConfig,
+};
 use libbpf_rs::MapCore;
 
 use crate::bpf_error::LdEbpfResult;

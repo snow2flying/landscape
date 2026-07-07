@@ -8,7 +8,6 @@ pub mod config;
 pub mod dev_wifi;
 pub mod ip_config;
 pub mod mss_clamp;
-pub mod nat;
 pub mod ppp;
 pub mod wifi;
 

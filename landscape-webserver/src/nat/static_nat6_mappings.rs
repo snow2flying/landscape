@@ -1,7 +1,8 @@
 use axum::extract::{Path, State};
 use landscape_common::api_response::LandscapeApiResp as CommonApiResp;
 use landscape_common::config::ConfigId;
-use landscape_common::iface::nat::{StaticNatError, StaticNatMappingV6Config};
+use landscape_common::config_service::static_nat::config6::StaticNatMappingV6Config;
+use landscape_common::config_service::static_nat::error::StaticNatError;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
