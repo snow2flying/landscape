@@ -6,7 +6,6 @@ use dev_wifi::LandscapeWifiInterface;
 
 pub mod config;
 pub mod dev_wifi;
-pub mod ip_config;
 pub mod wifi;
 
 #[derive(Clone, Serialize, Deserialize)]

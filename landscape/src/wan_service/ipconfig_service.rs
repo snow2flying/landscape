@@ -7,16 +7,14 @@ use landscape_common::LANDSCAPE_DEFAULE_DHCP_V4_CLIENT_PORT;
 use landscape_common::{
     args::LAND_HOSTNAME,
     global_const::default_router::{RouteInfo, RouteType, LD_ALL_ROUTERS},
-    iface::{
-        config::IfaceZoneType,
-        ip_config::{IfaceIpModelConfig, IfaceIpServiceConfig},
-    },
+    iface::config::IfaceZoneType,
     observer::IfaceObserverAction,
     service::{
         controller::ControllerService,
         manager::{ServiceManager, ServiceStarterTrait},
         ServiceStatus, WatchService,
     },
+    wan_service::ip_config::{IfaceIpModelConfig, IfaceIpServiceConfig},
 };
 use landscape_database::{
     iface_ip::repository::IfaceIpServiceRepository, provider::LandscapeDBServiceProvider,

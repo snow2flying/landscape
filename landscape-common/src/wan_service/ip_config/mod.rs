@@ -2,10 +2,10 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde::{Deserialize, Serialize};
 
-use super::config::{
+use crate::database::repository::LandscapeDBStore;
+use crate::iface::config::{
     IfaceZoneType, NetworkIfaceConfig, ServiceKind, ZoneAwareConfig, ZoneRequirement,
 };
-use crate::database::repository::LandscapeDBStore;
 use crate::net_proto::udp::dhcp::DhcpV4Options;
 use crate::store::storev2::LandscapeStore;
 use crate::utils::time::get_f64_timestamp;

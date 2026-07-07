@@ -37,8 +37,8 @@ use landscape::{
 };
 
 use landscape_common::{
-    config::AuthRuntimeConfig, database::LandscapeStore, iface::ip_config::IfaceIpModelConfig,
-    service::controller::ControllerService,
+    config::AuthRuntimeConfig, database::LandscapeStore, service::controller::ControllerService,
+    wan_service::ip_config::IfaceIpModelConfig,
 };
 
 use crate::gateway_runtime::GatewayService;
