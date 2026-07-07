@@ -1,3 +1,8 @@
+// ===========================================================================
+// Old unified types below — kept for backward compat with old DB table.
+// Will be removed in a future major version cleanup.
+// ===========================================================================
+
 use std::collections::HashSet;
 use std::net::Ipv6Addr;
 

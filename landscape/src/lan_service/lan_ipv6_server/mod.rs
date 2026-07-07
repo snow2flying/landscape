@@ -10,11 +10,8 @@ use landscape_common::{
         status::{DHCPv6AddressItem, DHCPv6OfferInfo, DHCPv6PrefixItem},
     },
     enrolled_device::EnrolledDevice,
-    ipv6::{
-        checked_allocate_subnet,
-        lan::{LanPrefixGroupConfig, PrefixParentSource},
-    },
-    lan_services::ipv6_ra::{IPv6NAInfo, IPv6NAInfoItem},
+    lan_service::lan_ipv6::{checked_allocate_subnet, LanPrefixGroupConfig, PrefixParentSource},
+    lan_service::lan_ipv6::{IPv6NAInfo, IPv6NAInfoItem},
     net::MacAddr,
     utils::time::get_f64_timestamp,
     wan_service::ipv6_pd::IAPrefixMap,

@@ -8,7 +8,7 @@ use std::{
 use landscape_common::{
     error::LdResult,
     event::hub::{IPv6AssignEvent, IPv6AssignEventSender, IPv6AssignInfo},
-    ipv6::lan::LanPrefixGroupConfig,
+    lan_service::lan_ipv6::LanPrefixGroupConfig,
     net::MacAddr,
     net_proto::icmpv6::messages::Icmpv6Message,
     route::{LanIPv6RouteKey, LanRouteInfo, LanRouteMode},

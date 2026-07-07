@@ -2,7 +2,7 @@ use std::net::Ipv6Addr;
 
 use landscape_common::{
     dhcp::v6_server::config::{DHCPv6IANAConfig, DHCPv6IAPDConfig},
-    ipv6::lan::{
+    lan_service::lan_ipv6::{
         LanPrefixGroupConfig, NaPrefixConfig, PdPrefixRangeConfig, PrefixParentSource,
         RaPrefixConfig,
     },

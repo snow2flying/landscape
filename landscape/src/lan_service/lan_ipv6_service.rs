@@ -5,8 +5,8 @@ use landscape_common::event::hub::{
     EnrolledDeviceEvent, EnrolledDeviceEventReader, IAPrefixEvent, IAPrefixEventReader,
     IPv6AssignEvent, IPv6AssignEventSender, IPv6AssignInfo, IfaceEventReader,
 };
-use landscape_common::ipv6::lan::{IPv6ServiceMode, LanIPv6ServiceConfigV2};
-use landscape_common::lan_services::ipv6_ra::IPv6NAInfo;
+use landscape_common::lan_service::lan_ipv6::IPv6NAInfo;
+use landscape_common::lan_service::lan_ipv6::{IPv6ServiceMode, LanIPv6ServiceConfigV2};
 use landscape_common::net::MacAddr;
 use landscape_common::observer::IfaceObserverAction;
 use landscape_common::service::controller::ControllerService;

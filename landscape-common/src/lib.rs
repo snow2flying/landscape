@@ -6,7 +6,6 @@ pub use landscape_macro::LdApiError;
 pub mod api_response;
 pub mod args;
 pub mod lan_service;
-pub mod lan_services;
 
 pub mod concurrency;
 pub mod config;
@@ -25,7 +24,6 @@ pub mod global_const;
 pub mod iface;
 pub mod info;
 pub mod ip_mark;
-pub mod ipv6;
 pub mod metric;
 pub mod network;
 pub mod route;

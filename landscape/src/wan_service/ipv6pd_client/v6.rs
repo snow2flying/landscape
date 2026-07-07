@@ -22,7 +22,7 @@ use crate::{
 use landscape_common::{event::hub::IAPrefixEvent, net::MacAddr, route::RouteTargetInfo};
 use landscape_common::{
     event::hub::IAPrefixEventSender,
-    ipv6::checked_allocate_subnet,
+    lan_service::lan_ipv6::checked_allocate_subnet,
     service::{ServiceStatus, WatchService},
     utils::time::get_f64_timestamp,
     wan_service::ipv6_pd::{IAPrefixMap, LDIAPrefix},

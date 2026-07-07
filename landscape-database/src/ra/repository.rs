@@ -1,4 +1,4 @@
-use landscape_common::ipv6::ra::IPV6RAServiceConfig;
+use landscape_common::lan_service::lan_ipv6::IPV6RAServiceConfig;
 use sea_orm::DatabaseConnection;
 
 use super::entity::{

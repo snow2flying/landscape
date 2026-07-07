@@ -6,10 +6,12 @@ use landscape_common::config_service::static_nat::config6::{
 use landscape_common::config_service::static_nat::error::StaticNatError;
 use landscape_common::enrolled_device::EnrolledDevice;
 use landscape_common::error::LdError;
-use landscape_common::ipv6::lan::{
+use landscape_common::lan_service::lan_ipv6::{
+    checked_allocate_subnet, checked_combine_ipv6_prefix_suffix,
+};
+use landscape_common::lan_service::lan_ipv6::{
     LanIPv6ServiceConfigV2, LanPrefixGroupConfig, PrefixParentSource,
 };
-use landscape_common::ipv6::{checked_allocate_subnet, checked_combine_ipv6_prefix_suffix};
 use sea_orm::DatabaseConnection;
 
 use super::entity::{

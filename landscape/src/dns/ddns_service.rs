@@ -14,7 +14,7 @@ use landscape_common::dns::provider_profile::DnsProviderProfile;
 use landscape_common::event::hub::{
     IAPrefixEvent, IAPrefixEventReader, IPv6AssignEvent, IPv6AssignEventReader,
 };
-use landscape_common::ipv6::{combine_ipv6_prefix_suffix, extract_ipv6_suffix};
+use landscape_common::lan_service::lan_ipv6::{combine_ipv6_prefix_suffix, extract_ipv6_suffix};
 use landscape_common::wan_service::ipv6_pd::IAPrefixMap;
 use landscape_common::{error::LdError, service::controller::ConfigController};
 use landscape_database::{

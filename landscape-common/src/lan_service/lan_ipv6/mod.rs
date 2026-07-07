@@ -1,5 +1,21 @@
-pub mod lan;
-pub mod ra;
+pub mod config;
+pub mod ipv6_na;
+pub mod ipv6_ra;
+
+pub use config::{
+    validate_cross_interface_v2, validate_cross_interface_v2_with_prefix_infos,
+    validate_prefix_groups, validate_prefix_groups_with_prefix_infos, ExpandedPrefixEntry,
+    IPv6ServiceMode, LanIPv6Config, LanIPv6ConfigV2, LanIPv6ServiceConfig, LanIPv6ServiceConfigV2,
+    LanPrefixGroupConfig, NaPrefixConfig, PdPrefixRangeConfig, PrefixGroupServiceKind,
+    PrefixParentSource, RaPrefixConfig, SourceServiceKind,
+};
+
+pub use ipv6_ra::{
+    IPV6RAConfig, IPV6RAServiceConfig, IPV6RaConfigSource, IPv6RaPdConfig, IPv6RaStaticConfig,
+    RouterFlags,
+};
+
+pub use ipv6_na::{IPv6NAInfo, IPv6NAInfoItem};
 
 use std::net::Ipv6Addr;
 
