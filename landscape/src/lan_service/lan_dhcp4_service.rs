@@ -7,9 +7,11 @@ use std::time::Duration;
 use landscape_common::client::{CallerLookupMatch, CallerLookupSource};
 use landscape_common::database::LandscapeStore as LandscapeDBStore;
 use landscape_common::event::hub::IfaceEventReader;
+use landscape_common::lan_service::lan_dhcpv4::config::DHCPv4ServiceConfig;
 use landscape_common::lan_service::lan_dhcpv4::status::ArpScanInfo;
 use landscape_common::lan_service::lan_dhcpv4::status::ArpScanStatus;
 use landscape_common::lan_service::lan_dhcpv4::status::DHCPv4OfferInfo;
+use landscape_common::lan_service::lan_dhcpv4::DhcpError;
 use landscape_common::route::LanRouteInfo;
 use landscape_common::route::LanRouteMode;
 use landscape_common::service::controller::ControllerService;
@@ -17,7 +19,6 @@ use landscape_common::service::WatchService;
 use landscape_common::store::storev2::LandscapeStore;
 use landscape_common::LAND_ARP_SCAN_INTERVAL;
 use landscape_common::{
-    lan_service::lan_dhcpv4::config::DHCPv4ServiceConfig,
     observer::IfaceObserverAction,
     service::manager::{ServiceManager, ServiceStarterTrait},
 };
@@ -338,7 +339,7 @@ impl DHCPv4ServerManagerService {
     pub async fn check_ip_range_conflict(
         &self,
         new_config: &DHCPv4ServiceConfig,
-    ) -> Result<(), String> {
+    ) -> Result<(), DhcpError> {
         if let Some(conflict_iface) = self
             .get_repository()
             .check_ip_range_conflict(
@@ -347,13 +348,10 @@ impl DHCPv4ServerManagerService {
                 new_config.config.network_mask,
             )
             .await
-            .map_err(|e| format!("Failed to check IP range conflict: {}", e))?
+            .map_err(|_| DhcpError::ConfigNotFound { id: new_config.iface_name.clone() })?
         {
-            let (start, end) = new_config.config.get_ip_range();
-            return Err(format!(
-                "IP range conflict detected with interface '{}'. New range: {}-{}",
-                conflict_iface, start, end
-            ));
+            let (range_start, range_end) = new_config.config.get_ip_range();
+            return Err(DhcpError::IpConflict { conflict_iface, range_start, range_end });
         }
 
         Ok(())

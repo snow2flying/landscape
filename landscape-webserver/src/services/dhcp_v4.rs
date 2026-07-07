@@ -9,7 +9,7 @@ use landscape_common::service::{ServiceStatus, WatchService};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use landscape_common::dhcp::DhcpError;
+use landscape_common::lan_service::lan_dhcpv4::DhcpError;
 
 use crate::api::JsonBody;
 use crate::LandscapeApp;
@@ -110,12 +110,14 @@ async fn get_all_iface_service_status(
 )]
 async fn get_iface_service_config(
     State(state): State<LandscapeApp>,
-    Path(iface_name): Path<String>,
+    Path(service_name): Path<String>,
 ) -> LandscapeApiResult<DHCPv4ServiceConfig> {
-    if let Some(iface_config) = state.dhcp_v4_server_service.get_config_by_name(iface_name).await {
+    if let Some(iface_config) =
+        state.dhcp_v4_server_service.get_config_by_name(service_name.clone()).await
+    {
         LandscapeApiResp::success(iface_config)
     } else {
-        Err(DhcpError::ConfigNotFound("DHCPv4".into()))?
+        Err(DhcpError::ConfigNotFound { id: service_name })?
     }
 }
 
@@ -133,9 +135,7 @@ async fn handle_service_config(
 ) -> LandscapeApiResult<()> {
     state.validate_zone(&config).await?;
     config.config.validate()?;
-    if let Err(conflict_msg) = state.dhcp_v4_server_service.check_ip_range_conflict(&config).await {
-        return Err(DhcpError::IpConflict(conflict_msg))?;
-    }
+    state.dhcp_v4_server_service.check_ip_range_conflict(&config).await?;
 
     state.dhcp_v4_server_service.handle_service_config(config).await?;
     LandscapeApiResp::success(())

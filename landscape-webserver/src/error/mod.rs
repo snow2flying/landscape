@@ -7,7 +7,6 @@ use landscape_common::cert::CertError;
 use landscape_common::config::InitConfigError;
 use landscape_common::config_service::static_nat::error::StaticNatError;
 use landscape_common::ddns::DdnsError;
-use landscape_common::dhcp::DhcpError;
 use landscape_common::dns::check::DnsCheckError;
 use landscape_common::dns::provider_profile::DnsProviderProfileError;
 use landscape_common::dns::redirect::DnsRedirectError;
@@ -21,6 +20,7 @@ use landscape_common::flow::FlowRuleError;
 use landscape_common::gateway::GatewayError;
 use landscape_common::geo::{GeoIpError, GeoSiteError};
 use landscape_common::ip_mark::DstIpRuleError;
+use landscape_common::lan_service::lan_dhcpv4::DhcpError;
 use landscape_common::service::ServiceConfigError;
 use landscape_common::wan_service::nat::error::NatServiceError;
 
