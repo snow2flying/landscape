@@ -1,13 +1,29 @@
 pub mod config;
+pub mod dhcpv6_config;
+pub mod dhcpv6_status;
 pub mod ipv6_na;
+pub mod prefix_group;
+pub mod source_config;
+
 pub mod ipv6_ra;
 
 pub use config::{
+    IPv6ServiceMode, LanIPv6Config, LanIPv6ConfigV2, LanIPv6ServiceConfig, LanIPv6ServiceConfigV2,
+    PrefixGroupServiceKind, SourceServiceKind,
+};
+
+pub use dhcpv6_config::{DHCPv6IANAConfig, DHCPv6IAPDConfig, DHCPv6ServerConfig};
+
+pub use dhcpv6_status::{DHCPv6AddressItem, DHCPv6OfferInfo, DHCPv6PrefixItem};
+
+pub use prefix_group::{
     validate_cross_interface_v2, validate_cross_interface_v2_with_prefix_infos,
     validate_prefix_groups, validate_prefix_groups_with_prefix_infos, ExpandedPrefixEntry,
-    IPv6ServiceMode, LanIPv6Config, LanIPv6ConfigV2, LanIPv6ServiceConfig, LanIPv6ServiceConfigV2,
-    LanPrefixGroupConfig, NaPrefixConfig, PdPrefixRangeConfig, PrefixGroupServiceKind,
-    PrefixParentSource, RaPrefixConfig, SourceServiceKind,
+    LanPrefixGroupConfig, NaPrefixConfig, PdPrefixRangeConfig, PrefixParentSource, RaPrefixConfig,
+};
+
+pub use source_config::{
+    validate_cross_interface, validate_sources_no_conflict, LanIPv6SourceConfig,
 };
 
 pub use ipv6_ra::{

@@ -8,9 +8,9 @@ use std::net::Ipv6Addr;
 
 use serde::{Deserialize, Serialize};
 
+use super::dhcpv6_config::DHCPv6ServerConfig;
 use crate::config_service::iface::{ServiceKind, ZoneAwareConfig, ZoneRequirement};
 use crate::database::repository::LandscapeDBStore;
-use crate::dhcp::v6_server::config::DHCPv6ServerConfig;
 use crate::service::ServiceConfigError;
 use crate::store::storev2::LandscapeStore;
 use crate::utils::time::get_f64_timestamp;

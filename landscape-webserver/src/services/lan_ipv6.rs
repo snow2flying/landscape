@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::extract::{Path, State};
 use landscape_common::api_response::LandscapeApiResp as CommonApiResp;
-use landscape_common::dhcp::v6_server::status::DHCPv6OfferInfo;
+use landscape_common::lan_service::lan_ipv6::DHCPv6OfferInfo;
 use landscape_common::lan_service::lan_ipv6::IPv6NAInfo;
 use landscape_common::lan_service::lan_ipv6::{
     validate_cross_interface_v2_with_prefix_infos, LanIPv6ServiceConfigV2,
