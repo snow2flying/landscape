@@ -3,12 +3,13 @@
 
 #include <vmlinux.h>
 
-#include "landscape_log.h"
-#include "land_nat_common.h"
-#include "nat/nat_maps.h"
-#include "land_wan_ip.h"
-#include "nat/nat_v3_maps.h"
-#include "einat_nat4.h"
+#include "../landscape_log.h"
+#include "nat_common.h"
+#include "nat_metric.h"
+#include "nat4_static.h"
+#include "nat4_dyn_map.h"
+#include "../land_wan_ip.h"
+#include "../einat_nat4.h"
 
 volatile const u16 tcp_range_start = 32768;
 volatile const u16 tcp_range_end = 65535;

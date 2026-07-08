@@ -1,7 +1,12 @@
 #include <bpf/bpf_endian.h>
 
 #include "landscape.h"
-#include "nat/nat_maps.h"
+#include "nat/nat_common.h"
+#include "nat/nat_metric.h"
+#include "nat/nat4_static.h"
+#include "nat/nat4_dyn_map.h"
+#include "nat/nat6_static.h"
+#include "nat/nat6_dyn_map.h"
 #include "land_wan_ip.h"
 #include "firewall/firewall_share.h"
 #include "metric.h"

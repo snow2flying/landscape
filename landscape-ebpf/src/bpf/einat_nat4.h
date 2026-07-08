@@ -9,7 +9,7 @@
 #include <vmlinux.h>
 
 #include "landscape_log.h"
-#include "land_nat_common.h"
+#include "nat/nat_common.h"
 
 static __always_inline int icmpx_err_l3_offset(int l4_off) {
     return l4_off + sizeof(struct icmphdr);

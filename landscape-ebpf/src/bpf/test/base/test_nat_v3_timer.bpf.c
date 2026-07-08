@@ -2,7 +2,7 @@
 
 #include <bpf/bpf_helpers.h>
 
-#include "land_nat4_v3.h"
+#include "nat/tc_nat4.h"
 
 char LICENSE[] SEC("license") = "GPL";
 

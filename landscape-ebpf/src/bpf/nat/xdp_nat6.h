@@ -5,21 +5,14 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
-#include "../land_nat_common.h"
+#include "nat_common.h"
 #include "../land_wan_ip.h"
 #include "../fragment/xdp_frag6.h"
-#include "nat_maps.h"
+#include "nat6_static.h"
+#include "nat6_dyn_map.h"
 #include "xdp_csum_helpers.h"
 
 #define LAND_IPV6_NET_PREFIX_TRANS_MASK (0x0FULL << 56)
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, struct nat_timer_key_v6);
-    __type(value, struct nat_timer_value_v6);
-    __uint(max_entries, NAT_MAPPING_TIMER_SIZE);
-    __uint(map_flags, BPF_F_NO_PREALLOC);
-} nat6_conn_timer SEC(".maps");
 
 static __always_inline int xdp_get_l4_checksum_offset(u32 l4_offset, u8 l4_protocol,
                                                       u32 *l4_checksum_offset) {

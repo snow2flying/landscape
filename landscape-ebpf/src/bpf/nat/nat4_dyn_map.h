@@ -1,15 +1,21 @@
-#ifndef __LD_NAT_V3_MAPS_H__
-#define __LD_NAT_V3_MAPS_H__
+#ifndef __LD_NAT4_DYN_MAP_H__
+#define __LD_NAT4_DYN_MAP_H__
 
-#include <bpf/bpf_helpers.h>
-
-#include <vmlinux.h>
-
-#include "../land_nat_common.h"
-#include "nat_maps.h"
+#include "nat_common.h"
 
 #define NAT4_V3_TIMER_SIZE NAT_MAPPING_TIMER_SIZE
 #define NAT4_V3_PORT_QUEUE_SIZE 65536
+
+struct nat4_mapping_value_v3 {
+    u64 state_ref;
+    __be32 addr;
+    __be32 trigger_addr;
+    __be16 port;
+    __be16 trigger_port;
+    u16 generation;
+    u8 _pad;
+    u8 is_allow_reuse;
+};
 
 struct nat4_egress_mapping_value_v3 {
     __be32 addr;
@@ -86,4 +92,4 @@ struct {
     __uint(max_entries, NAT4_V3_PORT_QUEUE_SIZE);
 } nat4_icmp_free_ports_v3 SEC(".maps");
 
-#endif /* __LD_NAT_V3_MAPS_H__ */
+#endif /* __LD_NAT4_DYN_MAP_H__ */

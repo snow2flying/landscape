@@ -6,14 +6,12 @@
 #include <bpf/bpf_helpers.h>
 
 #include "../landscape.h"
-#include "../land_nat_common.h"
-#include "../land_nat4_v3.h"
+#include "nat_common.h"
+#include "tc_nat4.h"
 #include "../land_wan_ip.h"
 #include "../scanner/xdp_scanner4.h"
 #include "../fragment/frag_common.h"
 #include "../fragment/xdp_frag4.h"
-#include "nat_maps.h"
-#include "nat_v3_maps.h"
 #include "xdp_csum_helpers.h"
 
 static __always_inline int xdp_read_nat_info4(void *data, void *data_end,

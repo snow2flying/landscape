@@ -1,12 +1,18 @@
 #ifndef LD_NAT_COMMON_H
 #define LD_NAT_COMMON_H
 #include <vmlinux.h>
-#include "landscape_log.h"
-#include "landscape.h"
-#include "pkg_def.h"
+#include "../landscape_log.h"
+#include "../landscape.h"
+#include "../pkg_def.h"
+
+#define NAT_MAPPING_CACHE_SIZE 1024 * 64 * 2
+#define NAT_MAPPING_TIMER_SIZE 1024 * 64 * 2
 
 #define NAT_MAPPING_INGRESS 0
 #define NAT_MAPPING_EGRESS 1
+
+#define NAT_CONN_ACTIVE 1
+#define NAT_CONN_DELETE 2
 
 // 33333
 volatile const __be16 TEST_PORT = 0x3582;

@@ -5,7 +5,7 @@
 #include <bpf/bpf_tracing.h>
 
 #include "landscape.h"
-#include "land_nat_common.h"
+#include "nat/nat_common.h"
 #include "scanner/xdp_common.h"
 #include "scanner/xdp_scanner4.h"
 #include "scanner/xdp_scanner6.h"
