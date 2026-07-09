@@ -455,6 +455,7 @@ mod tests {
             port: 8080,
             weight: 1,
             tls: false,
+            skip_cert_verify: false,
         }
     }
 

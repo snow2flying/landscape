@@ -166,6 +166,8 @@ pub struct HttpUpstreamTarget {
     pub weight: u32,
     #[serde(default)]
     pub tls: bool,
+    #[serde(default)]
+    pub skip_cert_verify: bool,
 }
 
 fn default_weight() -> u32 {

@@ -67,6 +67,7 @@ struct SelectedTarget {
     address: String,
     port: u16,
     tls: bool,
+    skip_cert_verify: bool,
 }
 
 impl SelectedTarget {
@@ -75,11 +76,15 @@ impl SelectedTarget {
             address: target.address.clone(),
             port: target.port,
             tls: target.tls,
+            skip_cert_verify: target.skip_cert_verify,
         }
     }
 
     fn display(&self) -> String {
-        format!("{}:{} tls={}", self.address, self.port, self.tls)
+        format!(
+            "{}:{} tls={} skip_cert_verify={}",
+            self.address, self.port, self.tls, self.skip_cert_verify
+        )
     }
 }
 
@@ -584,6 +589,10 @@ fn make_peer(
     let target = select_target(targets, &upstream.load_balance, counter, host, path);
     let mut peer =
         HttpPeer::new((target.address.as_str(), target.port), target.tls, target.address.clone());
+    if target.tls && target.skip_cert_verify {
+        peer.options.verify_cert = false;
+        peer.options.verify_hostname = false;
+    }
     peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
     Ok((Box::new(peer), SelectedTarget::from_target(target)))
 }
@@ -897,6 +906,7 @@ mod tests {
             port,
             weight,
             tls: false,
+            skip_cert_verify: false,
         }
     }
 

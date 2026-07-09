@@ -5,6 +5,7 @@ import type {
   HttpPathGroup,
   HttpUpstreamConfig,
   HttpUpstreamRuleConfig,
+  HttpUpstreamTarget,
   LoadBalanceMethod,
   PathRewriteMode,
   ProxyHeaderConflictMode,
@@ -81,7 +82,13 @@ function cloneData<T>(value: T): T {
 }
 
 function defaultTarget() {
-  return { address: "", port: 80, weight: 1, tls: false };
+  return {
+    address: "",
+    port: 80,
+    weight: 1,
+    tls: false,
+    skip_cert_verify: false,
+  };
 }
 
 function defaultUpstreamConfig(
@@ -202,6 +209,13 @@ function addTarget(upstream: HttpUpstreamConfig) {
 function removeTarget(upstream: HttpUpstreamConfig, index: number) {
   if (upstream.targets.length > 1) {
     upstream.targets.splice(index, 1);
+  }
+}
+
+function setTargetTls(target: HttpUpstreamTarget, value: boolean) {
+  target.tls = value;
+  if (!value) {
+    target.skip_cert_verify = false;
   }
 }
 
@@ -500,8 +514,8 @@ async function saveRule() {
                     }}
                   </div>
 
-                  <n-grid :cols="2" :x-gap="12">
-                    <n-form-item-gi :label="t('gateway.targets')" :span="2">
+                  <n-grid :cols="3" :x-gap="12">
+                    <n-form-item-gi :label="t('gateway.targets')" :span="3">
                       <n-flex vertical style="width: 100%; gap: 8px">
                         <n-flex
                           v-for="(target, index) in rule.upstream.targets"
@@ -531,14 +545,37 @@ async function saveRule() {
                             style="width: 80px"
                             :disabled="isLegacyRule"
                           />
-                          <n-switch
-                            v-model:value="target.tls"
-                            size="small"
-                            :disabled="isLegacyRule"
+                          <n-tooltip
+                            trigger="hover"
+                            :style="{ maxWidth: '240px' }"
                           >
-                            <template #checked>TLS</template>
-                            <template #unchecked>TLS</template>
-                          </n-switch>
+                            <template #trigger>
+                              <n-checkbox
+                                :checked="target.tls"
+                                :disabled="isLegacyRule"
+                                @update:checked="
+                                  (v: boolean) => setTargetTls(target, v)
+                                "
+                              >
+                                TLS
+                              </n-checkbox>
+                            </template>
+                            {{ t("gateway.target_tls_tip") }}
+                          </n-tooltip>
+                          <n-tooltip
+                            trigger="hover"
+                            :style="{ maxWidth: '240px' }"
+                          >
+                            <template #trigger>
+                              <n-checkbox
+                                v-model:checked="target.skip_cert_verify"
+                                :disabled="isLegacyRule || !target.tls"
+                              >
+                                {{ t("gateway.target_skip_cert_verify") }}
+                              </n-checkbox>
+                            </template>
+                            {{ t("gateway.target_skip_cert_verify_tip") }}
+                          </n-tooltip>
                           <n-button
                             v-if="
                               rule.upstream.targets.length > 1 && !isLegacyRule
@@ -565,7 +602,7 @@ async function saveRule() {
 
                     <n-form-item-gi
                       :label="t('gateway.load_balance')"
-                      :span="2"
+                      :span="1"
                     >
                       <n-radio-group
                         v-model:value="rule.upstream.load_balance"
@@ -583,7 +620,8 @@ async function saveRule() {
                     <template v-if="rule.match_rule.t === 'host'">
                       <n-form-item-gi
                         :label="t('gateway.client_ip_headers')"
-                        :span="2"
+                        :span="1"
+                        :offset="1"
                       >
                         <n-switch
                           :value="rule.upstream.client_ip_headers !== 'none'"
@@ -601,7 +639,7 @@ async function saveRule() {
 
                       <n-form-item-gi
                         :label="t('gateway.request_headers')"
-                        :span="2"
+                        :span="3"
                       >
                         <n-flex vertical style="width: 100%; gap: 8px">
                           <n-flex
@@ -880,10 +918,28 @@ async function saveRule() {
                   :placeholder="t('gateway.target_weight')"
                   style="width: 80px"
                 />
-                <n-switch v-model:value="target.tls" size="small">
-                  <template #checked>TLS</template>
-                  <template #unchecked>TLS</template>
-                </n-switch>
+                <n-tooltip trigger="hover" :style="{ maxWidth: '240px' }">
+                  <template #trigger>
+                    <n-checkbox
+                      :checked="target.tls"
+                      @update:checked="(v: boolean) => setTargetTls(target, v)"
+                    >
+                      TLS
+                    </n-checkbox>
+                  </template>
+                  {{ t("gateway.target_tls_tip") }}
+                </n-tooltip>
+                <n-tooltip trigger="hover" :style="{ maxWidth: '240px' }">
+                  <template #trigger>
+                    <n-checkbox
+                      v-model:checked="target.skip_cert_verify"
+                      :disabled="!target.tls"
+                    >
+                      {{ t("gateway.target_skip_cert_verify") }}
+                    </n-checkbox>
+                  </template>
+                  {{ t("gateway.target_skip_cert_verify_tip") }}
+                </n-tooltip>
                 <n-button
                   v-if="pathGroupDraft.upstream.targets.length > 1"
                   size="small"
@@ -1066,7 +1122,7 @@ async function saveRule() {
 
 .editor-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }

@@ -330,6 +330,7 @@ mod tests {
             port,
             weight,
             tls: true,
+            skip_cert_verify: false,
         }
     }
 

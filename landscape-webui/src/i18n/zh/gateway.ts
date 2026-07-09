@@ -33,6 +33,10 @@ export default {
   target_port: "端口",
   target_weight: "权重",
   target_tls: "TLS",
+  target_tls_tip: "仅当内网上游服务监听在 HTTPS 时才勾选。",
+  target_skip_cert_verify: "忽略证书",
+  target_skip_cert_verify_tip:
+    "勾选后网关将不校验上游 TLS 证书,适用于上游使用自签名证书的场景,请仅在可信内网中使用。",
   add_target: "添加目标",
   target_address_required: "地址不能为空",
   target_required: "至少需要一个上游目标",

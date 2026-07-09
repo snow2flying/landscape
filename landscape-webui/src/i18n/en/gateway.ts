@@ -36,6 +36,10 @@ export default {
   target_port: "Port",
   target_weight: "Weight",
   target_tls: "TLS",
+  target_tls_tip: "Enable only when the upstream service listens over HTTPS.",
+  target_skip_cert_verify: "Skip Cert",
+  target_skip_cert_verify_tip:
+    "When enabled, the gateway will not validate the upstream TLS certificate. Use it for self-signed certificates on a trusted internal network.",
   add_target: "Add Target",
   target_address_required: "Address is required",
   target_required: "At least one upstream target is required",
