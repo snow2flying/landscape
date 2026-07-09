@@ -6,6 +6,10 @@
 #include "nat4_dyn_map.h"
 #include "nat4_map_ops.h"
 
+#ifndef ENOENT
+#define ENOENT 2
+#endif
+
 #define NAT4_TIMER_STEP_DELETE_CT 1U
 #define NAT4_TIMER_STEP_RESTART 2U
 
@@ -157,12 +161,8 @@ static __always_inline u32 nat4_handle_timer_step(struct nat4_timer_key *key,
 
         if (egress_value && egress_value->addr == key->pair_ip.dst_addr.addr &&
             egress_value->port == key->pair_ip.dst_port) {
-            bpf_map_delete_elem(&nat4_egress_dyn_map, &egress_key);
-
-            egress_value = nat4_lookup_egress_dynamic(key->l4proto, value->client_addr.addr,
-                                                      value->client_port);
-            if (egress_value && egress_value->addr == key->pair_ip.dst_addr.addr &&
-                egress_value->port == key->pair_ip.dst_port) {
+            long del_ret = bpf_map_delete_elem(&nat4_egress_dyn_map, &egress_key);
+            if (del_ret != 0 && del_ret != -ENOENT) {
                 return nat4_timer_restart(value, current_status, current_status,
                                           DELETE_RETRY_INTERVAL, next_timeout);
             }
@@ -191,19 +191,13 @@ static __always_inline u32 nat4_handle_timer_step(struct nat4_timer_key *key,
             return nat4_timer_delete_ct(key);
         }
 
-        bpf_map_delete_elem(&nat4_ingress_dyn_map, &ingress_key);
-
-        ingress_value = bpf_map_lookup_elem(&nat4_ingress_dyn_map, &ingress_key);
-        if (!ingress_value) {
-            return nat4_timer_restart(value, current_status, TIMER_PUSH_QUEUE, QUEUE_RETRY_INTERVAL,
+        long del_ret = bpf_map_delete_elem(&nat4_ingress_dyn_map, &ingress_key);
+        if (del_ret != 0 && del_ret != -ENOENT) {
+            return nat4_timer_restart(value, current_status, current_status, DELETE_RETRY_INTERVAL,
                                       next_timeout);
         }
 
-        if (ingress_value->generation != value->generation_snapshot) {
-            return nat4_timer_delete_ct(key);
-        }
-
-        return nat4_timer_restart(value, current_status, current_status, DELETE_RETRY_INTERVAL,
+        return nat4_timer_restart(value, current_status, TIMER_PUSH_QUEUE, QUEUE_RETRY_INTERVAL,
                                   next_timeout);
     }
 
