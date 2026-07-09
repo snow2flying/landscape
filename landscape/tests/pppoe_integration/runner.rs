@@ -44,6 +44,7 @@ pub(super) async fn run_client(
         cfg.password.clone(),
         cfg.default_router,
         cfg.mtu,
+        None,
     );
 
     let service_status = WatchService::new();

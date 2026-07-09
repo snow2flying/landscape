@@ -12,6 +12,10 @@ export default {
   username: "Username",
   password: "Password",
   mtu: "MTU (Negotiation only, requires additional MSS clamping)",
+  ac_name:
+    "Requested AC name (leave empty unless needed, otherwise dialing may fail)",
+  ac_name_tip:
+    "When set, connection is limited to servers with matching AC name",
   dhcp_warn:
     "If firewall is enabled on this interface, configure rules to allow port 68",
   dhcp_hostname: "Hostname used in DHCP request",

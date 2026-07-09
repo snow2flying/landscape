@@ -29,6 +29,7 @@ fn test_config() -> PPPoEClientConfig {
         "testpass".into(),
         false,
         1492,
+        None,
     )
 }
 

@@ -61,6 +61,7 @@ export type IfaceIpModelConfig =
       username: string;
       password: string;
       mtu: number;
+      ac_name?: string;
     }
   | { t: "dhcpclient"; default_router: boolean; hostname: string | undefined };
 

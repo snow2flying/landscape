@@ -27,6 +27,7 @@ pub struct PPPoEClientConfig {
     pub password: String,
     pub default_router: bool,
     pub requested_mru: u16,
+    pub ac_name: Option<String>,
 }
 
 impl PPPoEClientConfig {
@@ -38,6 +39,7 @@ impl PPPoEClientConfig {
         password: String,
         default_router: bool,
         requested_mru: u16,
+        ac_name: Option<String>,
     ) -> Self {
         Self {
             index,
@@ -51,6 +53,7 @@ impl PPPoEClientConfig {
             } else {
                 requested_mru.min(DEFAULT_CLIENT_MRU)
             },
+            ac_name,
         }
     }
 }

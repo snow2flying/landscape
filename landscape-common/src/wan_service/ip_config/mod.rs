@@ -82,6 +82,9 @@ pub enum IfaceIpModelConfig {
         username: String,
         password: String,
         mtu: u32,
+        #[serde(default)]
+        #[cfg_attr(feature = "openapi", schema(required = false, nullable = true, value_type = Option<String>))]
+        ac_name: Option<String>,
     },
     DhcpClient {
         #[serde(default)]

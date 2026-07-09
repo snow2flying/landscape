@@ -67,6 +67,12 @@ async function on_modal_enter() {
 async function update_mode() {
   if (iface_data.value !== undefined) {
     try {
+      if (
+        iface_data.value.ip_model.t === IfaceIpMode.PPPoE &&
+        (iface_data.value.ip_model as any).ac_name === ""
+      ) {
+        (iface_data.value.ip_model as any).ac_name = undefined;
+      }
       let config = await update_iface_server_config(iface_data.value);
       emit("refresh");
       show_model.value = false;
@@ -93,6 +99,7 @@ function select_ip_model(value: IfaceIpMode) {
       username: "",
       password: "",
       mtu: 1492,
+      ac_name: undefined,
     };
   } else if (value === IfaceIpMode.DHCPClient) {
     iface_data.value.ip_model = {
@@ -200,6 +207,20 @@ function select_ip_model(value: IfaceIpMode) {
                   :min="576"
                   :max="1492"
                   style="width: 100%"
+                />
+              </n-form-item-gi>
+              <n-form-item-gi :span="5">
+                <template #label>
+                  <Notice>
+                    {{ t("ipconfig_editor.ac_name") }}
+                    <template #msg>
+                      {{ t("ipconfig_editor.ac_name_tip") }}
+                    </template>
+                  </Notice>
+                </template>
+                <n-input
+                  v-model:value="iface_data.ip_model.ac_name"
+                  placeholder=""
                 />
               </n-form-item-gi>
             </n-grid>

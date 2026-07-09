@@ -24,6 +24,7 @@ fn test_config() -> PPPoEClientConfig {
         "testpass".into(),
         false,
         1492,
+        None,
     )
 }
 
@@ -38,6 +39,13 @@ fn wrap_eth(dst: &[u8], src: &[u8], ethertype: u16, payload: Vec<u8>) -> Box<Vec
 
 fn build_pado(host_uniq: u32) -> Box<Vec<u8>> {
     let frame = PPPoEFrame::get_offer_with_host_uniq(host_uniq);
+    wrap_eth(&SERVER_MAC, &SERVER_MAC, ETH_P_PPOED, frame.convert_to_payload())
+}
+
+fn build_pado_with_ac_name(host_uniq: u32, ac_name: &str) -> Box<Vec<u8>> {
+    let mut frame = PPPoEFrame::get_offer_with_host_uniq(host_uniq);
+    frame.payload.extend(PPPoETag::AcName(ac_name.as_bytes().to_vec()).decode_options());
+    frame.length = frame.payload.len() as u16;
     wrap_eth(&SERVER_MAC, &SERVER_MAC, ETH_P_PPOED, frame.convert_to_payload())
 }
 
@@ -715,6 +723,118 @@ mod integration {
             .expect("expected LCP Ack after correct PADS");
         let ppp = extract_lcp_packet(&ack, 0x0042).unwrap();
         assert!(ppp.is_lcp_config() && ppp.is_ack());
+
+        drop(to_client);
+        drop(handle);
+    }
+
+    #[tokio::test]
+    async fn test_ac_name_matching() {
+        ensure_test_env();
+
+        let (mut client_tx, mut from_client) = mpsc::channel::<Box<Vec<u8>>>(16);
+        let (to_client, mut client_rx) = mpsc::channel::<Box<Vec<u8>>>(16);
+        let mut config = test_config();
+        config.ac_name = Some("desired-ac".into());
+        let status = WatchService::new();
+        status.just_change_status(ServiceStatus::Staring);
+        status.just_change_status(ServiceStatus::Running);
+
+        let handle =
+            tokio::spawn(
+                async move { run(&config, &mut client_tx, &mut client_rx, &status).await },
+            );
+
+        let padi = tokio::time::timeout(Duration::from_secs(2), from_client.recv())
+            .await
+            .unwrap()
+            .expect("expected PADI");
+        let host_uniq = extract_host_uniq(&padi).expect("PADI must have HostUniq");
+
+        to_client.send(build_pado_with_ac_name(host_uniq, "desired-ac")).await.unwrap();
+
+        let padr = tokio::time::timeout(Duration::from_secs(2), from_client.recv())
+            .await
+            .unwrap()
+            .expect("expected PADR for matching AC name");
+        assert_eq!(extract_pppoe_code(&padr), Some(0x19), "should be PADR");
+
+        drop(to_client);
+        drop(handle);
+    }
+
+    #[tokio::test]
+    async fn test_ac_name_mismatch_ignored() {
+        ensure_test_env();
+
+        let (mut client_tx, mut from_client) = mpsc::channel::<Box<Vec<u8>>>(16);
+        let (to_client, mut client_rx) = mpsc::channel::<Box<Vec<u8>>>(16);
+        let mut config = test_config();
+        config.ac_name = Some("desired-ac".into());
+        let status = WatchService::new();
+        status.just_change_status(ServiceStatus::Staring);
+        status.just_change_status(ServiceStatus::Running);
+
+        let handle =
+            tokio::spawn(
+                async move { run(&config, &mut client_tx, &mut client_rx, &status).await },
+            );
+
+        let padi = tokio::time::timeout(Duration::from_secs(2), from_client.recv())
+            .await
+            .unwrap()
+            .expect("expected PADI");
+        let host_uniq = extract_host_uniq(&padi).expect("PADI must have HostUniq");
+
+        to_client.send(build_pado_with_ac_name(host_uniq, "wrong-ac")).await.unwrap();
+
+        let result = tokio::time::timeout(Duration::from_millis(200), from_client.recv()).await;
+        assert!(
+            result.is_err() || result.unwrap().is_none(),
+            "PADR should NOT be sent for mismatched AC name"
+        );
+
+        to_client.send(build_pado_with_ac_name(host_uniq, "desired-ac")).await.unwrap();
+
+        let padr = tokio::time::timeout(Duration::from_secs(2), from_client.recv())
+            .await
+            .unwrap()
+            .expect("expected PADR for matching AC name after mismatch");
+        assert_eq!(extract_pppoe_code(&padr), Some(0x19));
+
+        drop(to_client);
+        drop(handle);
+    }
+
+    #[tokio::test]
+    async fn test_ac_name_not_configured_any_accepted() {
+        ensure_test_env();
+
+        let (mut client_tx, mut from_client) = mpsc::channel::<Box<Vec<u8>>>(16);
+        let (to_client, mut client_rx) = mpsc::channel::<Box<Vec<u8>>>(16);
+        let config = test_config();
+        let status = WatchService::new();
+        status.just_change_status(ServiceStatus::Staring);
+        status.just_change_status(ServiceStatus::Running);
+
+        let handle =
+            tokio::spawn(
+                async move { run(&config, &mut client_tx, &mut client_rx, &status).await },
+            );
+
+        let padi = tokio::time::timeout(Duration::from_secs(2), from_client.recv())
+            .await
+            .unwrap()
+            .expect("expected PADI");
+        let host_uniq = extract_host_uniq(&padi).expect("PADI must have HostUniq");
+
+        to_client.send(build_pado_with_ac_name(host_uniq, "any-ac")).await.unwrap();
+
+        let padr = tokio::time::timeout(Duration::from_secs(2), from_client.recv())
+            .await
+            .unwrap()
+            .expect("expected PADR when AC name not configured");
+        assert_eq!(extract_pppoe_code(&padr), Some(0x19));
 
         drop(to_client);
         drop(handle);

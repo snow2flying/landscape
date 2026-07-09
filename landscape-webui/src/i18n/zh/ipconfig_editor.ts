@@ -12,6 +12,8 @@ export default {
   username: "用户名",
   password: "密码",
   mtu: "MTU (仅为协商, 需要额外开启 MSS 服务)",
+  ac_name: "请求连接的 AC 名称 (没有特殊需求的话请留空, 否则可能导致拨号异常)",
+  ac_name_tip: "设置后只会与 AC 名称一致的服务端进行连接",
   dhcp_warn: "本端口如果有开启防火墙, 那么需要配置规则将 68 端口开放",
   dhcp_hostname: "DHCP 时填充的主机名称",
   update: "更新",

@@ -171,11 +171,13 @@ fn handle_discovery(
     }
 
     let mut ac_cookie = None;
+    let mut ac_name = None;
     let mut matched = host_uniq == 0;
     for tag in PPPoETag::from_bytes(&frame.payload) {
         match tag {
             PPPoETag::HostUniq(id) => matched = id == host_uniq,
             PPPoETag::AcCookie(cookie) => ac_cookie = Some(cookie),
+            PPPoETag::AcName(name) => ac_name = Some(name),
             _ => {}
         }
     }
@@ -186,6 +188,21 @@ fn handle_discovery(
             "received PADO with mismatched Host-Uniq"
         );
         return Ok(None);
+    }
+
+    if let Some(ref allowed) = config.ac_name {
+        if !allowed.is_empty() {
+            let received = ac_name.as_ref().map(|n| String::from_utf8_lossy(n).into_owned());
+            if received.as_deref() != Some(allowed.as_str()) {
+                tracing::info!(
+                    iface = %config.iface_name,
+                    expected_ac = %allowed,
+                    ?received,
+                    "ignoring PADO from non-matching AC"
+                );
+                return Ok(None);
+            }
+        }
     }
 
     tracing::info!(
