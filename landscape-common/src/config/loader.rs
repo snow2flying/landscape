@@ -9,6 +9,7 @@ use crate::config::runtime::{
     StoreRuntimeConfig, TimeRuntimeConfig, WebRuntimeConfig,
 };
 use crate::config::settings::LandscapeConfig;
+use crate::hostname_registry::HostnameRegistryConfig;
 use crate::sys_service::gateway::settings::GatewayRuntimeConfig;
 use crate::{
     DEFAULT_TIME_ENABLE, DEFAULT_TIME_SAMPLES_PER_SERVER, DEFAULT_TIME_SERVERS,
@@ -226,8 +227,11 @@ impl RuntimeConfig {
                 .doh_http_endpoint
                 .clone()
                 .unwrap_or_else(|| "/dns-query".to_string()),
+        };
+
+        let hostname_registry = HostnameRegistryConfig {
             lan_suffix: config
-                .dns
+                .hostname_registry
                 .lan_suffix
                 .clone()
                 .unwrap_or_else(|| crate::DEFAULT_DNS_LAN_SUFFIX.to_string()),
@@ -264,6 +268,7 @@ impl RuntimeConfig {
             store,
             metric,
             dns,
+            hostname_registry,
             ui: config.ui.clone(),
             time,
             gateway,

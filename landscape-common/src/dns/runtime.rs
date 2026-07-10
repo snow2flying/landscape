@@ -18,7 +18,6 @@ pub struct CacheRuntimeConfig {
     pub cache_capacity: u32,
     pub cache_ttl: u32,
     pub negative_cache_ttl: u32,
-    pub lan_suffix: String,
 }
 
 impl Default for CacheRuntimeConfig {
@@ -27,7 +26,6 @@ impl Default for CacheRuntimeConfig {
             cache_capacity: crate::DEFAULT_DNS_CACHE_CAPACITY,
             cache_ttl: crate::DEFAULT_DNS_CACHE_TTL,
             negative_cache_ttl: crate::DEFAULT_DNS_NEGATIVE_CACHE_TTL,
-            lan_suffix: crate::DEFAULT_DNS_LAN_SUFFIX.to_string(),
         }
     }
 }

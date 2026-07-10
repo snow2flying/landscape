@@ -4,6 +4,7 @@ use crate::config::settings::{
     LandscapeConfig, LandscapeDnsConfig, LandscapeMetricConfig, LandscapeTimeConfig,
     LandscapeUIConfig, MetricMode,
 };
+use crate::hostname_registry::HostnameRegistryConfig;
 use crate::sys_service::gateway::settings::GatewayRuntimeConfig;
 use crate::{
     DEFAULT_TIME_ENABLE, DEFAULT_TIME_SAMPLES_PER_SERVER, DEFAULT_TIME_SERVERS,
@@ -21,6 +22,7 @@ pub struct RuntimeConfig {
     pub store: StoreRuntimeConfig,
     pub metric: MetricRuntimeConfig,
     pub dns: DnsRuntimeConfig,
+    pub hostname_registry: HostnameRegistryConfig,
     pub ui: LandscapeUIConfig,
     pub time: TimeRuntimeConfig,
     pub gateway: GatewayRuntimeConfig,
@@ -79,7 +81,6 @@ pub struct DnsRuntimeConfig {
     pub negative_cache_ttl: u32,
     pub doh_listen_port: u16,
     pub doh_http_endpoint: String,
-    pub lan_suffix: String,
 }
 
 #[derive(Clone, Debug)]
@@ -253,9 +254,6 @@ impl DnsRuntimeConfig {
         }
         if let Some(v) = &config.doh_http_endpoint {
             self.doh_http_endpoint = v.clone();
-        }
-        if let Some(v) = &config.lan_suffix {
-            self.lan_suffix = v.clone();
         }
     }
 }

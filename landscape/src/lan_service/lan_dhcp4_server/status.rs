@@ -362,15 +362,15 @@ impl DhcpV4AssignStatus {
         false
     }
 
-    pub fn clean_expire_ip(&mut self) -> Vec<(MacAddr, Ipv4Addr)> {
+    pub fn clean_expire_ip(&mut self) -> Vec<(MacAddr, Ipv4Addr, Option<String>)> {
         let current_time = self.relative_boot_time.elapsed().as_secs();
 
-        let mut expired: Vec<(MacAddr, Ipv4Addr)> = Vec::new();
+        let mut expired: Vec<(MacAddr, Ipv4Addr, Option<String>)> = Vec::new();
         self.offered_ip.retain(|mac, value| {
             if value.is_static {
                 true
             } else if current_time > value.get_expire_time() {
-                expired.push((*mac, value.ip));
+                expired.push((*mac, value.ip, value.hostname.clone()));
                 false
             } else {
                 true
@@ -379,12 +379,12 @@ impl DhcpV4AssignStatus {
 
         self.allocated_host.retain(|_key, source| !matches!(source, IpAllocSource::Declined));
 
-        for (_, ip) in &expired {
+        for (_, ip, _) in &expired {
             self.allocated_host.remove(ip);
         }
 
         if !expired.is_empty() {
-            let ips: Vec<_> = expired.iter().map(|(_, ip)| ip).collect();
+            let ips: Vec<_> = expired.iter().map(|(_, ip, _)| ip).collect();
             tracing::info!("DHCPv4 server cleans up these IPs: {ips:?}");
         }
         expired

@@ -4,10 +4,10 @@ use std::time::Instant;
 
 use landscape_common::{
     config::DnsRuntimeConfig,
-    config_service::enrolled_device::EnrolledDevice,
     dns::check::DnsCheckError,
     dns::{CacheRuntimeConfig, DohRuntimeConfig, FlowDnsDependencies},
-    event::{dns::DnsEvent, hub::EnrolledDeviceEventReader, DnsMetricMessage},
+    event::{dns::DnsEvent, DnsMetricMessage},
+    hostname_registry::HostnameRegistry,
     service::{
         controller::{ConfigController, FlowConfigController},
         WatchService,
@@ -56,8 +56,7 @@ impl LandscapeDnsService {
         dns_config: DnsRuntimeConfig,
         cert_service: CertService,
         msg_tx: Option<mpsc::Sender<DnsMetricMessage>>,
-        device_reader: EnrolledDeviceEventReader,
-        initial_devices: Vec<EnrolledDevice>,
+        hostname_registry: Arc<HostnameRegistry>,
     ) -> Self {
         let (cache_runtime, doh_runtime) = split_dns_runtime_config(&dns_config);
         prepare_system_dns();
@@ -81,8 +80,7 @@ impl LandscapeDnsService {
             doh,
             Some(Arc::new(route_service) as Arc<dyn LocalDnsAnswerProvider>),
             Some(Arc::new(api_tls_resolver) as Arc<dyn landscape_dns::server::DohAdvertiseProvider>),
-            device_reader,
-            initial_devices,
+            hostname_registry,
         );
 
         // dns_service.restart(53).await;
@@ -319,7 +317,6 @@ fn split_dns_runtime_config(
             cache_capacity: dns_config.cache_capacity,
             cache_ttl: dns_config.cache_ttl,
             negative_cache_ttl: dns_config.negative_cache_ttl,
-            lan_suffix: dns_config.lan_suffix.clone(),
         },
         DohRuntimeConfig {
             listen_port: dns_config.doh_listen_port,

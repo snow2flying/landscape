@@ -57,6 +57,7 @@ use landscape_common::{
     config::RuntimeConfig,
     error::LdResult,
     event::hub::EventHub,
+    hostname_registry::HostnameRegistry,
     wan_service::ipv6_pd::IAPrefixMap,
     VERSION,
 };
@@ -299,6 +300,20 @@ async fn run_system(
                 "failed to list enrolled devices: {e}"
             ))
         })?;
+    let hostname_registry = startup_phase!("hostname_registry.new", {
+        let initial_devices: Vec<(String, std::net::Ipv4Addr)> = enrolled_devices
+            .iter()
+            .filter_map(|d| {
+                d.hostname.as_ref().zip(d.ipv4.as_ref()).map(|(h, ip)| (h.clone(), *ip))
+            })
+            .collect();
+        HostnameRegistry::new(
+            config.hostname_registry.clone(),
+            initial_devices,
+            event_handle.subscribe_ipv4_assign(),
+            event_handle.subscribe_device(),
+        )
+    });
     let dns_service = startup_phase!(
         "dns_service.new",
         LandscapeDnsService::new(
@@ -311,8 +326,7 @@ async fn run_system(
             config.dns.clone(),
             cert_service.clone(),
             metric_service.get_dns_metric_channel(),
-            event_handle.subscribe_device(),
-            enrolled_devices,
+            hostname_registry,
         )
         .await
     );

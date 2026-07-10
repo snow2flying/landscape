@@ -118,6 +118,11 @@ pub struct LandscapeDnsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(required = false, nullable = false))]
     pub doh_http_endpoint: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LandscapeHostnameRegistryConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(required = false, nullable = false))]
     pub lan_suffix: Option<String>,
@@ -181,6 +186,9 @@ pub struct LandscapeConfig {
     #[serde(default)]
     #[cfg_attr(feature = "openapi", schema(required = true))]
     pub dns: LandscapeDnsConfig,
+    #[serde(default)]
+    #[cfg_attr(feature = "openapi", schema(required = true))]
+    pub hostname_registry: LandscapeHostnameRegistryConfig,
     #[serde(default)]
     #[cfg_attr(feature = "openapi", schema(required = true))]
     pub ui: LandscapeUIConfig,

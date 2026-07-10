@@ -145,12 +145,16 @@ pub async fn dhcp_v4_server(
             // 租期超时分支
             _ = &mut timeout_timer => {
                 let expired = dhcp_server.clean_expire_ip();
-                for (mac, ip) in expired {
-                    let device_id = { let s = dhcp_server.status.lock().unwrap(); s.static_bindings.get(&mac).and_then(|b| b.device_id) };
+                for (mac, ip, hostname) in expired {
+                    let device_id = {
+                        let s = dhcp_server.status.lock().unwrap();
+                        s.static_bindings.get(&mac).and_then(|b| b.device_id)
+                    };
                     ipv4_assign_sender.try_send(IPv4AssignEvent::Expired(IPv4AssignInfo {
                         iface_name: iface_name.clone(),
                         mac,
                         ip,
+                        hostname,
                         device_id,
                     })).ok();
                 }
@@ -216,6 +220,7 @@ async fn handle_dhcp_message(
                 }
                 DhcpOptionMessageType::Request => {
                     let mac = dhcp.chaddr;
+                    let hostname = dhcp.options.get_hostname();
                     let Some(payload) = gen_ack(dhcp_server, dhcp, iface_ifindex, iface_mac) else {
                         return false;
                     };
@@ -230,6 +235,7 @@ async fn handle_dhcp_message(
                                 iface_name: iface_name.to_string(),
                                 mac,
                                 ip: payload.yiaddr,
+                                hostname,
                                 device_id,
                             }))
                             .ok();
@@ -263,16 +269,19 @@ async fn handle_dhcp_message(
                     let mac = dhcp.chaddr;
                     let options = dhcp.options;
                     if let Some(DhcpOptions::RequestedIpAddress(ip)) = options.has_option(50) {
-                        dhcp_server.add_decline_ip(ip);
-                        let device_id = {
+                        let (device_id, hostname) = {
                             let s = dhcp_server.status.lock().unwrap();
-                            s.static_bindings.get(&mac).and_then(|b| b.device_id)
+                            let id = s.static_bindings.get(&mac).and_then(|b| b.device_id);
+                            let h = s.offered_ip.get(&mac).and_then(|o| o.hostname.clone());
+                            (id, h)
                         };
+                        dhcp_server.add_decline_ip(ip);
                         ipv4_assign_sender
                             .try_send(IPv4AssignEvent::Expired(IPv4AssignInfo {
                                 iface_name: iface_name.to_string(),
                                 mac,
                                 ip,
+                                hostname,
                                 device_id,
                             }))
                             .ok();
@@ -284,16 +293,19 @@ async fn handle_dhcp_message(
                     let mac = dhcp.chaddr;
                     let ip = dhcp.ciaddr;
                     tracing::info!("req: Release, {dhcp:?}");
+                    let (device_id, hostname) = {
+                        let s = dhcp_server.status.lock().unwrap();
+                        let id = s.static_bindings.get(&mac).and_then(|b| b.device_id);
+                        let h = s.offered_ip.get(&mac).and_then(|o| o.hostname.clone());
+                        (id, h)
+                    };
                     if dhcp_server.release_ip(&mac, ip) {
-                        let device_id = {
-                            let s = dhcp_server.status.lock().unwrap();
-                            s.static_bindings.get(&mac).and_then(|b| b.device_id)
-                        };
                         ipv4_assign_sender
                             .try_send(IPv4AssignEvent::Expired(IPv4AssignInfo {
                                 iface_name: iface_name.to_string(),
                                 mac,
                                 ip,
+                                hostname,
                                 device_id,
                             }))
                             .ok();
@@ -492,7 +504,7 @@ impl DHCPv4Server {
         self.status.lock().unwrap().offer_ip(mac_addr, hostname)
     }
 
-    pub fn clean_expire_ip(&self) -> Vec<(MacAddr, Ipv4Addr)> {
+    pub fn clean_expire_ip(&self) -> Vec<(MacAddr, Ipv4Addr, Option<String>)> {
         self.status.lock().unwrap().clean_expire_ip()
     }
 

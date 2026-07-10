@@ -1,19 +1,16 @@
 use std::{
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr},
+    net::IpAddr,
     net::{Ipv6Addr, SocketAddr, SocketAddrV6},
     sync::Arc,
 };
 
 use arc_swap::{ArcSwap, ArcSwapOption};
-use dashmap::DashMap;
 use landscape_common::dns::check::DnsCheckError;
-use landscape_common::event::hub::EnrolledDeviceEventReader;
+use landscape_common::hostname_registry::HostnameRegistry;
 use landscape_common::{dns::FlowDnsDesiredState, event::DnsMetricMessage, service::WatchService};
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-
-use landscape_common::config_service::enrolled_device::EnrolledDevice;
 
 use crate::{
     convert_record_type,
@@ -68,7 +65,7 @@ pub struct LandscapeDnsServer {
     // 用于重定向的动态更新
     pub local_answer_provider: Option<Arc<dyn LocalDnsAnswerProvider>>,
     pub doh_advertise_provider: Option<Arc<dyn DohAdvertiseProvider>>,
-    hostname_map: Arc<DashMap<String, Ipv4Addr>>,
+    pub hostname_registry: Arc<HostnameRegistry>,
     // DNS 事件
     pub msg_tx: MetricSenderState,
     // 监听 UDP DNS 地址
@@ -107,8 +104,7 @@ impl LandscapeDnsServer {
         doh: Option<EffectiveDohListenerConfig>,
         local_answer_provider: Option<Arc<dyn LocalDnsAnswerProvider>>,
         doh_advertise_provider: Option<Arc<dyn DohAdvertiseProvider>>,
-        mut device_reader: EnrolledDeviceEventReader,
-        initial_devices: Vec<EnrolledDevice>,
+        hostname_registry: Arc<HostnameRegistry>,
     ) -> Self {
         let status = WatchService::new();
         let mdns_service = if local_answer_provider.is_some() {
@@ -116,50 +112,6 @@ impl LandscapeDnsServer {
         } else {
             None
         };
-
-        let hostname_map: Arc<DashMap<String, Ipv4Addr>> = Arc::new(DashMap::new());
-
-        for device in &initial_devices {
-            if let (Some(ref hostname), Some(ipv4)) = (&device.hostname, device.ipv4) {
-                if let Ok(punycode) = idna::domain_to_ascii(hostname) {
-                    hostname_map.insert(punycode, ipv4);
-                }
-            }
-        }
-
-        let map = hostname_map.clone();
-        tokio::spawn(async move {
-            use landscape_common::event::hub::EnrolledDeviceEvent;
-            loop {
-                match device_reader.recv().await {
-                    Ok(EnrolledDeviceEvent::Updated { old, new }) => {
-                        if let Some(ref old_device) = old {
-                            if let Some(ref old_hostname) = old_device.hostname {
-                                if let Ok(punycode) = idna::domain_to_ascii(old_hostname) {
-                                    map.remove(&punycode);
-                                }
-                            }
-                        }
-                        if let (Some(ref hostname), Some(ipv4)) = (&new.hostname, new.ipv4) {
-                            if let Ok(punycode) = idna::domain_to_ascii(hostname) {
-                                map.insert(punycode, ipv4);
-                            }
-                        }
-                    }
-                    Ok(EnrolledDeviceEvent::Deleted { old }) => {
-                        if let Some(ref hostname) = old.hostname {
-                            if let Ok(punycode) = idna::domain_to_ascii(hostname) {
-                                map.remove(&punycode);
-                            }
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("lan hostname service lagged by {n} messages");
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        });
 
         Self {
             status,
@@ -176,7 +128,7 @@ impl LandscapeDnsServer {
             _mdns_service: mdns_service,
             local_answer_provider,
             doh_advertise_provider,
-            hostname_map,
+            hostname_registry,
         }
     }
 
@@ -251,7 +203,7 @@ impl LandscapeDnsServer {
             self.msg_tx.clone(),
             self.local_answer_provider.clone(),
             self.doh_advertise_provider.clone(),
-            self.hostname_map.clone(),
+            self.hostname_registry.clone(),
             desired_state.doh_runtime.clone(),
         );
         let Some(runtime) = self.build_flow_runtime(flow_id, handler).await else {
@@ -391,6 +343,7 @@ mod tests {
     use super::*;
     use arc_swap::ArcSwap;
     use landscape_common::dns::{CacheRuntimeConfig, FlowDnsDesiredState};
+    use landscape_common::hostname_registry::{HostnameRegistry, HostnameRegistryConfig};
 
     fn run_async_test(test: impl std::future::Future<Output = ()>) {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(test);
@@ -401,8 +354,11 @@ mod tests {
             cache_capacity: 16,
             cache_ttl: 60,
             negative_cache_ttl: 10,
-            lan_suffix: "lan".to_string(),
         }
+    }
+
+    fn test_hostname_registry() -> Arc<HostnameRegistry> {
+        HostnameRegistry::new_for_test(HostnameRegistryConfig::default())
     }
 
     #[test]
@@ -416,7 +372,7 @@ mod tests {
                 Arc::new(ArcSwapOption::new(None)),
                 None,
                 None,
-                Arc::new(DashMap::new()),
+                test_hostname_registry(),
                 None,
             );
             entry.runtime.store(Some(Arc::new(FlowServerRuntime {

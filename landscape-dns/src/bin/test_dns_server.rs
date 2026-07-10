@@ -1,4 +1,7 @@
-use landscape_common::{dns::rule::DNSRuntimeRule, dns::ChainDnsServerInitInfo};
+use landscape_common::dns::rule::DNSRuntimeRule;
+use landscape_common::dns::ChainDnsServerInitInfo;
+use landscape_common::event::hub::{EnrolledDeviceEventReader, IPv4AssignEventReader};
+use landscape_common::hostname_registry::{HostnameRegistry, HostnameRegistryConfig};
 use landscape_dns::server::{CacheRuntimeConfig, LandscapeDnsServer};
 
 /// cargo run --package landscape-dns --bin test_dns_server
@@ -7,9 +10,14 @@ async fn main() -> std::io::Result<()> {
     landscape_common::init_tracing!();
 
     let listen_port = 54;
-    let (_, device_rx) =
-        tokio::sync::broadcast::channel::<landscape_common::event::hub::EnrolledDeviceEvent>(1);
-    let device_reader = landscape_common::event::hub::EnrolledDeviceEventReader::new(device_rx);
+    let (_tx, rx) = tokio::sync::broadcast::channel(64);
+    let (_tx2, rx2) = tokio::sync::broadcast::channel(64);
+    let hostname_registry = HostnameRegistry::new(
+        HostnameRegistryConfig::default(),
+        vec![],
+        IPv4AssignEventReader::new(rx),
+        EnrolledDeviceEventReader::new(rx2),
+    );
     let server = LandscapeDnsServer::new(
         listen_port,
         None,
@@ -17,8 +25,7 @@ async fn main() -> std::io::Result<()> {
         None,
         None,
         None,
-        device_reader,
-        vec![],
+        hostname_registry,
     );
 
     // handler

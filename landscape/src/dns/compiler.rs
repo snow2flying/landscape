@@ -167,7 +167,6 @@ mod tests {
             cache_capacity: 64,
             cache_ttl: 60,
             negative_cache_ttl: 10,
-            lan_suffix: "lan".to_string(),
         }
     }
 

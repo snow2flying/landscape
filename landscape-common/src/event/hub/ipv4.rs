@@ -10,6 +10,7 @@ pub struct IPv4AssignInfo {
     pub iface_name: String,
     pub mac: MacAddr,
     pub ip: Ipv4Addr,
+    pub hostname: Option<String>,
     pub device_id: Option<Uuid>,
 }
 
