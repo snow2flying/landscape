@@ -30,6 +30,7 @@ use moka::future::Cache;
 use uuid::Uuid;
 
 use crate::{
+    domain::PreprocessedDomain,
     server::rule::{RedirectSolution, ResolutionRule},
     server::{CacheRuntimeConfig, DohAdvertiseProvider, LocalDnsAnswerProvider, MetricSenderState},
     CacheDNSItem, CheckChainDnsResult, DNSCache,
@@ -370,18 +371,22 @@ impl DnsRequestHandler {
 
     pub async fn resolve_arpa(
         &self,
-        domain: &str,
+        domain: &PreprocessedDomain,
         query_type: RecordType,
     ) -> (Vec<Record>, ResponseCode, DnsResultStatus) {
         // (1) Redirect (global check first)
-        if let Some((records, status, _, _)) = self.lookup_redirects(domain, query_type) {
+        if let Some((records, status, _, _)) = self.lookup_redirects(domain.raw(), query_type) {
             return (records, ResponseCode::NoError, status);
         }
 
-        // Strip .arpa. and dispatch by second-level label
-        let name = domain.strip_suffix('.').unwrap_or(domain);
-        let arpa_suffix = name.strip_suffix(".arpa").unwrap_or(name);
-        let label = arpa_suffix.rsplit('.').next().unwrap_or(arpa_suffix);
+        let arpa_suffix = match domain.arpa_prefix() {
+            Some(s) => s,
+            None => return (vec![], ResponseCode::NXDomain, DnsResultStatus::NxDomain),
+        };
+        let label = match domain.arpa_sld() {
+            Some(sld) => sld,
+            None => return (vec![], ResponseCode::NXDomain, DnsResultStatus::NxDomain),
+        };
 
         match label {
             // (2) resolver.arpa. → DDR
@@ -394,13 +399,12 @@ impl DnsRequestHandler {
             }
             // (3) home.arpa. → hostname registry
             "home" => {
-                return self.resolve_home_arpa(name, arpa_suffix, query_type);
+                return self.resolve_home_arpa(domain, query_type);
             }
             // (4) in-addr.arpa. / ip6.arpa. → PTR
             "in-addr" | "ip6" => {
-                // `parse_arpa_name` requires an FQDN, so parse `domain` (with its
-                // trailing dot), not the dot-stripped `name`.
-                let Ok(dns_name) = Name::from_str(domain) else {
+                // `parse_arpa_name` requires an FQDN, so parse `domain.raw()` (with trailing dot).
+                let Ok(dns_name) = Name::from_str(domain.raw()) else {
                     return (vec![], ResponseCode::NXDomain, DnsResultStatus::NxDomain);
                 };
                 let Ok(net) = dns_name.parse_arpa_name() else {
@@ -408,7 +412,7 @@ impl DnsRequestHandler {
                 };
                 let addr = net.addr();
 
-                if let Some((records, code)) = self.resolve_lan_ptr_by_addr(&addr, name) {
+                if let Some((records, code)) = self.resolve_lan_ptr_by_addr(&addr, domain.name()) {
                     let status = if code == ResponseCode::NXDomain {
                         DnsResultStatus::NxDomain
                     } else {
@@ -416,7 +420,7 @@ impl DnsRequestHandler {
                     };
                     return (records, code, status);
                 }
-                return self.resolve_from_cache_or_upstream(domain, query_type).await;
+                return self.resolve_from_cache_or_upstream(domain.raw(), query_type).await;
             }
             // (5) ipv4only.arpa. → NODATA (special-use domain, RFC 8880)
             "ipv4only" if arpa_suffix == "ipv4only" => {
@@ -429,16 +433,19 @@ impl DnsRequestHandler {
 
     fn resolve_home_arpa(
         &self,
-        name: &str,
-        arpa_suffix: &str,
+        domain: &PreprocessedDomain,
         query_type: RecordType,
     ) -> (Vec<Record>, ResponseCode, DnsResultStatus) {
+        let arpa_suffix = match domain.arpa_prefix() {
+            Some(s) => s,
+            None => return (vec![], ResponseCode::NXDomain, DnsResultStatus::NxDomain),
+        };
         let hostname = match arpa_suffix.strip_suffix(".home") {
             Some(h) if !h.is_empty() => h,
             _ => return (vec![], ResponseCode::NXDomain, DnsResultStatus::NxDomain),
         };
         let (records, code) =
-            self.lookup_lan_hostname(name, hostname, query_type, ResponseCode::NXDomain);
+            self.lookup_lan_hostname(domain.raw(), hostname, query_type, ResponseCode::NXDomain);
         let status = if code == ResponseCode::NXDomain {
             DnsResultStatus::NxDomain
         } else {
@@ -449,17 +456,15 @@ impl DnsRequestHandler {
 
     pub async fn resolve_forward(
         &self,
-        domain: &str,
+        domain: &PreprocessedDomain,
         query_type: RecordType,
     ) -> (Vec<Record>, ResponseCode, DnsResultStatus) {
         // (1) Redirect
-        if let Some((records, status, _, _)) = self.lookup_redirects(domain, query_type) {
+        if let Some((records, status, _, _)) = self.lookup_redirects(domain.raw(), query_type) {
             return (records, ResponseCode::NoError, status);
         }
 
-        // Strip TLD and dispatch
-        let name = domain.strip_suffix('.').unwrap_or(domain).to_ascii_lowercase();
-        let tld = name.rsplit('.').next().unwrap_or(&name);
+        let tld = domain.tld();
 
         // (2a) Blocked TLDs → NXDOMAIN
         if matches!(tld, "invalid" | "test" | "onion") {
@@ -467,31 +472,31 @@ impl DnsRequestHandler {
         }
         // (2b) Localhost → loopback
         if tld == "localhost" {
-            let (records, code) = Self::lookup_localhost(domain, query_type);
+            let (records, code) = Self::lookup_localhost(domain.raw(), query_type);
             return (records, code, DnsResultStatus::Local);
         }
         // (2c) Local TLD (LAN suffix or local.) → hostname registry
         if self.hostname_registry.is_local_tld(tld) {
-            return self.resolve_local_domain(domain, &name, tld, query_type);
+            return self.resolve_local_domain(domain, query_type);
         }
 
         // (3) Cache → (4) Upstream
-        self.resolve_from_cache_or_upstream(domain, query_type).await
+        self.resolve_from_cache_or_upstream(domain.raw(), query_type).await
     }
 
     fn resolve_local_domain(
         &self,
-        domain: &str,
-        name: &str,
-        tld: &str,
+        domain: &PreprocessedDomain,
         query_type: RecordType,
     ) -> (Vec<Record>, ResponseCode, DnsResultStatus) {
-        let hostname = match name.strip_suffix(&format!(".{}", tld)) {
-            Some(h) if !h.is_empty() => h,
-            _ => return (vec![], ResponseCode::NXDomain, DnsResultStatus::NxDomain),
+        let tld = domain.tld();
+        let hostname = match domain.hostname_for_tld(tld) {
+            Some(h) => h,
+            None => return (vec![], ResponseCode::NXDomain, DnsResultStatus::NxDomain),
         };
         let fallback = if tld == "local" { ResponseCode::NoError } else { ResponseCode::NXDomain };
-        let (records, code) = self.lookup_lan_hostname(domain, hostname, query_type, fallback);
+        let (records, code) =
+            self.lookup_lan_hostname(domain.raw(), hostname, query_type, fallback);
         let status = if code == ResponseCode::NXDomain {
             DnsResultStatus::NxDomain
         } else {
@@ -570,17 +575,16 @@ impl DnsRequestHandler {
 
     pub async fn check_domain(
         &self,
-        domain: &str,
+        domain: &PreprocessedDomain,
         query_type: RecordType,
         apply_filter: bool,
     ) -> CheckChainDnsResult {
         let mut result = CheckChainDnsResult::default();
 
-        let name = domain.strip_suffix('.').unwrap_or(domain).to_ascii_lowercase();
-        let tld = name.rsplit('.').next().unwrap_or(&name);
+        let tld = domain.tld();
 
         if let Some((records, _status, id, dynamic_source)) =
-            self.lookup_redirects(domain, query_type)
+            self.lookup_redirects(domain.raw(), query_type)
         {
             result.redirect_id = id;
             result.dynamic_redirect_source = dynamic_source;
@@ -588,26 +592,26 @@ impl DnsRequestHandler {
         } else if matches!(tld, "invalid" | "test" | "onion") {
             return result;
         } else if tld == "localhost" {
-            let (records, _) = Self::lookup_localhost(domain, query_type);
+            let (records, _) = Self::lookup_localhost(domain.raw(), query_type);
             result.records = Some(crate::to_common_records(records));
             return result;
-        } else if name.ends_with(".arpa") {
+        } else if domain.name().ends_with(".arpa") {
             let (records, _, _) = self.resolve_arpa(domain, query_type).await;
             result.records = Some(crate::to_common_records(records));
             return result;
         } else if self.hostname_registry.is_local_tld(tld) {
-            let hostname = name.strip_suffix(&format!(".{}", tld)).filter(|h| !h.is_empty());
-            if let Some(hostname) = hostname {
+            if let Some(hostname) = domain.hostname_for_tld(tld) {
                 let code =
                     if tld == "local" { ResponseCode::NoError } else { ResponseCode::NXDomain };
-                let (records, _) = self.lookup_lan_hostname(domain, hostname, query_type, code);
+                let (records, _) =
+                    self.lookup_lan_hostname(domain.raw(), hostname, query_type, code);
                 result.records = Some(crate::to_common_records(records));
             }
             return result;
         } else {
             let resolves = self.resolves.load();
             for (_index, resolver) in resolves.iter() {
-                if resolver.is_match(domain) {
+                if resolver.is_match(domain.raw()) {
                     result.rule_id = Some(resolver.get_config_id());
                     let filter = resolver.filter_mode();
                     result.rule_filter = Some(filter.clone());
@@ -618,9 +622,11 @@ impl DnsRequestHandler {
                         break;
                     }
 
-                    if let Ok(rdata_vec) =
-                        with_lookup_timeout(resolver.lookup(domain, query_type), LOOKUP_TIMEOUT)
-                            .await
+                    if let Ok(rdata_vec) = with_lookup_timeout(
+                        resolver.lookup(domain.raw(), query_type),
+                        LOOKUP_TIMEOUT,
+                    )
+                    .await
                     {
                         let records = if apply_filter {
                             filter_result(rdata_vec, &filter)
@@ -634,7 +640,7 @@ impl DnsRequestHandler {
             }
         }
 
-        if let Some((records, filter, _)) = self.lookup_cache(domain, query_type).await {
+        if let Some((records, filter, _)) = self.lookup_cache(domain.raw(), query_type).await {
             let query_filtered = is_type_filtered(query_type, &filter);
             result.query_filtered |= query_filtered;
             if result.rule_filter.is_none() {
@@ -659,15 +665,14 @@ impl DnsRequestHandler {
 
     pub async fn refresh_cache_entry(
         &self,
-        domain: &str,
+        domain: &PreprocessedDomain,
         query_type: RecordType,
         apply_filter: bool,
     ) -> Result<CheckChainDnsResult, DnsCheckError> {
-        let name = domain.strip_suffix('.').unwrap_or(domain).to_ascii_lowercase();
-        let tld = name.rsplit('.').next().unwrap_or(&name);
+        let tld = domain.tld();
 
-        if self.lookup_redirects(domain, query_type).is_some() {
-            return Err(DnsCheckError::RefreshRedirected(domain.to_string()));
+        if self.lookup_redirects(domain.raw(), query_type).is_some() {
+            return Err(DnsCheckError::RefreshRedirected(domain.raw().to_string()));
         }
 
         if matches!(tld, "invalid" | "test" | "onion") {
@@ -675,15 +680,15 @@ impl DnsRequestHandler {
         }
 
         if tld == "localhost" {
-            let (records, _) = Self::lookup_localhost(domain, query_type);
+            let (records, _) = Self::lookup_localhost(domain.raw(), query_type);
             return Ok(CheckChainDnsResult {
                 records: Some(crate::to_common_records(records)),
                 ..Default::default()
             });
         }
 
-        if name.ends_with(".arpa") {
-            self.clear_cache_entry_and_refresh_maps_if_present(domain, query_type).await;
+        if domain.name().ends_with(".arpa") {
+            self.clear_cache_entry_and_refresh_maps_if_present(domain.raw(), query_type).await;
             let (records, _, _) = self.resolve_arpa(domain, query_type).await;
             return Ok(CheckChainDnsResult {
                 records: Some(crate::to_common_records(records)),
@@ -692,12 +697,12 @@ impl DnsRequestHandler {
         }
 
         if self.hostname_registry.is_local_tld(tld) {
-            self.clear_cache_entry_and_refresh_maps_if_present(domain, query_type).await;
-            let hostname = name.strip_suffix(&format!(".{}", tld)).filter(|h| !h.is_empty());
-            if let Some(hostname) = hostname {
+            self.clear_cache_entry_and_refresh_maps_if_present(domain.raw(), query_type).await;
+            if let Some(hostname) = domain.hostname_for_tld(tld) {
                 let code =
                     if tld == "local" { ResponseCode::NoError } else { ResponseCode::NXDomain };
-                let (records, _) = self.lookup_lan_hostname(domain, hostname, query_type, code);
+                let (records, _) =
+                    self.lookup_lan_hostname(domain.raw(), hostname, query_type, code);
                 return Ok(CheckChainDnsResult {
                     records: Some(crate::to_common_records(records)),
                     ..Default::default()
@@ -708,7 +713,7 @@ impl DnsRequestHandler {
 
         let resolves = self.resolves.load();
         for (_index, resolver) in resolves.iter() {
-            if !resolver.is_match(domain) {
+            if !resolver.is_match(domain.raw()) {
                 continue;
             }
 
@@ -721,7 +726,9 @@ impl DnsRequestHandler {
                 ..Default::default()
             };
 
-            match with_lookup_timeout(resolver.lookup(domain, query_type), LOOKUP_TIMEOUT).await {
+            match with_lookup_timeout(resolver.lookup(domain.raw(), query_type), LOOKUP_TIMEOUT)
+                .await
+            {
                 Ok(rdata_vec) => {
                     let records = if apply_filter {
                         filter_result(rdata_vec.clone(), &filter)
@@ -731,10 +738,10 @@ impl DnsRequestHandler {
                     result.records = Some(crate::to_common_records(records));
 
                     if query_filtered {
-                        self.clear_cache_entry(domain, query_type).await;
+                        self.clear_cache_entry(domain.raw(), query_type).await;
                     } else {
                         self.insert(
-                            domain,
+                            domain.raw(),
                             query_type,
                             rdata_vec,
                             ResponseCode::NoError,
@@ -751,10 +758,10 @@ impl DnsRequestHandler {
                     result.records = Some(vec![]);
 
                     if query_filtered {
-                        self.clear_cache_entry(domain, query_type).await;
+                        self.clear_cache_entry(domain.raw(), query_type).await;
                     } else if code == ResponseCode::NXDomain || code == ResponseCode::NoError {
                         self.insert(
-                            domain,
+                            domain.raw(),
                             query_type,
                             vec![],
                             code,
@@ -765,14 +772,16 @@ impl DnsRequestHandler {
                         )
                         .await;
                     } else {
-                        return Err(DnsCheckError::RefreshFailed(domain.to_string()));
+                        return Err(DnsCheckError::RefreshFailed(domain.raw().to_string()));
                     }
                 }
             }
 
             self.refresh_runtime_maps_from_cache();
 
-            if let Some((records, cache_filter, _)) = self.lookup_cache(domain, query_type).await {
+            if let Some((records, cache_filter, _)) =
+                self.lookup_cache(domain.raw(), query_type).await
+            {
                 let cache_query_filtered = is_type_filtered(query_type, &cache_filter);
                 result.query_filtered |= cache_query_filtered;
                 if result.rule_filter.is_none() {
@@ -790,7 +799,7 @@ impl DnsRequestHandler {
             return Ok(result);
         }
 
-        Err(DnsCheckError::RefreshRequiresRule(domain.to_string()))
+        Err(DnsCheckError::RefreshRequiresRule(domain.raw().to_string()))
     }
 
     async fn clear_cache_entry(&self, domain: &str, query_type: RecordType) {
@@ -1037,10 +1046,11 @@ impl RequestHandler for DnsRequestHandler {
         }
 
         // Dispatch
+        let pd = PreprocessedDomain::new(&domain);
         let (records, code, status) = if domain.ends_with(".arpa.") {
-            self.resolve_arpa(&domain, query_type).await
+            self.resolve_arpa(&pd, query_type).await
         } else {
-            self.resolve_forward(&domain, query_type).await
+            self.resolve_forward(&pd, query_type).await
         };
 
         // Build response
@@ -1400,34 +1410,40 @@ mod tests {
             let handler = make_test_handler();
 
             // resolver.arpa. → resolver branch
-            let (records, code, status) =
-                handler.resolve_arpa("resolver.arpa.", RecordType::A).await;
+            let (records, code, status) = handler
+                .resolve_arpa(&PreprocessedDomain::new("resolver.arpa."), RecordType::A)
+                .await;
             assert!(records.is_empty());
             assert_eq!(code, ResponseCode::NoError);
             assert_eq!(status, DnsResultStatus::Local);
 
             // home.arpa. → home branch
-            let (records, code, _) = handler.resolve_arpa("home.arpa.", RecordType::A).await;
+            let (records, code, _) =
+                handler.resolve_arpa(&PreprocessedDomain::new("home.arpa."), RecordType::A).await;
             assert!(records.is_empty());
             assert_eq!(code, ResponseCode::NXDomain);
 
             // in-addr.arpa. → reverse branch
-            let (records, _code, _) =
-                handler.resolve_arpa("1.0.0.10.in-addr.arpa.", RecordType::PTR).await;
+            let (records, _code, _) = handler
+                .resolve_arpa(&PreprocessedDomain::new("1.0.0.10.in-addr.arpa."), RecordType::PTR)
+                .await;
             assert!(records.is_empty());
 
             // ip6.arpa. → reverse branch
             let (records, _code, _) = handler
                 .resolve_arpa(
-                    "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.",
+                    &PreprocessedDomain::new(
+                        "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.",
+                    ),
                     RecordType::PTR,
                 )
                 .await;
             assert!(records.is_empty());
 
             // evilresolver.arpa. is not resolver → NXDOMAIN
-            let (records, code, _) =
-                handler.resolve_arpa("evilresolver.arpa.", RecordType::A).await;
+            let (records, code, _) = handler
+                .resolve_arpa(&PreprocessedDomain::new("evilresolver.arpa."), RecordType::A)
+                .await;
             assert!(records.is_empty());
             assert_eq!(code, ResponseCode::NXDomain);
         });
@@ -1439,7 +1455,8 @@ mod tests {
             let handler = make_test_handler();
 
             for domain in &["somewhere.onion.", "foo.invalid.", "bar.test."] {
-                let (records, code, status) = handler.resolve_forward(domain, RecordType::A).await;
+                let pd = PreprocessedDomain::new(domain);
+                let (records, code, status) = handler.resolve_forward(&pd, RecordType::A).await;
                 assert!(records.is_empty(), "records for {} should be empty", domain);
                 assert_eq!(code, ResponseCode::NXDomain, "code for {} should be NXDomain", domain);
                 assert_eq!(
@@ -1457,8 +1474,9 @@ mod tests {
         run_async_test(async {
             let handler = make_test_handler();
 
-            let (records, code, status) =
-                handler.resolve_arpa("nonexistent.home.arpa.", RecordType::A).await;
+            let (records, code, status) = handler
+                .resolve_arpa(&PreprocessedDomain::new("nonexistent.home.arpa."), RecordType::A)
+                .await;
             assert!(records.is_empty());
             assert_eq!(code, ResponseCode::NXDomain);
             assert_eq!(status, DnsResultStatus::NxDomain);
@@ -1492,8 +1510,12 @@ mod tests {
                 None,
             );
 
-            let (records, code, status) =
-                handler.resolve_arpa("50.1.168.192.in-addr.arpa.", RecordType::PTR).await;
+            let (records, code, status) = handler
+                .resolve_arpa(
+                    &PreprocessedDomain::new("50.1.168.192.in-addr.arpa."),
+                    RecordType::PTR,
+                )
+                .await;
             assert_eq!(code, ResponseCode::NoError);
             assert_eq!(status, DnsResultStatus::Local);
             assert_eq!(records.len(), 1);
@@ -1534,7 +1556,8 @@ mod tests {
 
             let (records, code, status) = {
                 let arpa_name = arpa_name_from_ipv6(ipv6);
-                handler.resolve_arpa(&arpa_name, RecordType::PTR).await
+                let pd = PreprocessedDomain::new(&arpa_name);
+                handler.resolve_arpa(&pd, RecordType::PTR).await
             };
             assert_eq!(code, ResponseCode::NoError);
             assert_eq!(status, DnsResultStatus::Local);
@@ -1574,8 +1597,9 @@ mod tests {
                 None,
             );
 
-            let (records, code, status) =
-                handler.resolve_forward("dev.lan.", RecordType::AAAA).await;
+            let (records, code, status) = handler
+                .resolve_forward(&PreprocessedDomain::new("dev.lan."), RecordType::AAAA)
+                .await;
             assert_eq!(code, ResponseCode::NoError);
             assert_eq!(status, DnsResultStatus::Local);
             assert_eq!(records.len(), 1);
@@ -1612,8 +1636,9 @@ mod tests {
                 None,
             );
 
-            let (records, code, status) =
-                handler.resolve_forward("dev.lan.", RecordType::AAAA).await;
+            let (records, code, status) = handler
+                .resolve_forward(&PreprocessedDomain::new("dev.lan."), RecordType::AAAA)
+                .await;
             assert_eq!(code, ResponseCode::NXDomain);
             assert_eq!(status, DnsResultStatus::NxDomain);
             assert!(records.is_empty());
@@ -1625,8 +1650,9 @@ mod tests {
         run_async_test(async {
             let handler = make_test_handler();
 
-            let (records, code, status) =
-                handler.resolve_arpa("1.0.0.127.in-addr.arpa.", RecordType::PTR).await;
+            let (records, code, status) = handler
+                .resolve_arpa(&PreprocessedDomain::new("1.0.0.127.in-addr.arpa."), RecordType::PTR)
+                .await;
             assert_eq!(code, ResponseCode::NoError);
             assert_eq!(status, DnsResultStatus::Local);
             assert_eq!(records.len(), 1);
@@ -1642,8 +1668,9 @@ mod tests {
         run_async_test(async {
             let handler = make_test_handler();
 
-            let (records, code, _status) =
-                handler.resolve_arpa("ipv4only.arpa.", RecordType::A).await;
+            let (records, code, _status) = handler
+                .resolve_arpa(&PreprocessedDomain::new("ipv4only.arpa."), RecordType::A)
+                .await;
             assert!(records.is_empty());
             assert_eq!(code, ResponseCode::NoError);
         });
@@ -1654,8 +1681,9 @@ mod tests {
         run_async_test(async {
             let handler = make_test_handler();
 
-            let (records, code, _status) =
-                handler.resolve_arpa("foo.bar.arpa.", RecordType::A).await;
+            let (records, code, _status) = handler
+                .resolve_arpa(&PreprocessedDomain::new("foo.bar.arpa."), RecordType::A)
+                .await;
             assert!(records.is_empty());
             assert_eq!(code, ResponseCode::NXDomain);
         });
@@ -1715,7 +1743,9 @@ mod tests {
                 None,
             );
 
-            let result = handler.check_domain("example.com.", RecordType::A, true).await;
+            let result = handler
+                .check_domain(&PreprocessedDomain::new("example.com."), RecordType::A, true)
+                .await;
 
             assert_eq!(result.rule_filter, Some(FilterResult::OnlyIPv6));
             assert!(result.query_filtered);
@@ -1751,7 +1781,13 @@ mod tests {
                 )
                 .await;
 
-            let result = handler.check_domain("cached-filter.example.", RecordType::A, true).await;
+            let result = handler
+                .check_domain(
+                    &PreprocessedDomain::new("cached-filter.example."),
+                    RecordType::A,
+                    true,
+                )
+                .await;
 
             assert_eq!(result.rule_filter, Some(FilterResult::OnlyIPv6));
             assert!(result.query_filtered);
@@ -1786,7 +1822,13 @@ mod tests {
                 )
                 .await;
 
-            let result = handler.check_domain("cached-full.example.", RecordType::A, false).await;
+            let result = handler
+                .check_domain(
+                    &PreprocessedDomain::new("cached-full.example."),
+                    RecordType::A,
+                    false,
+                )
+                .await;
 
             assert_eq!(result.rule_filter, Some(FilterResult::OnlyIPv6));
             assert!(result.query_filtered);
@@ -1812,7 +1854,9 @@ mod tests {
                 None,
             );
 
-            let result = handler.check_domain("printer.local.", RecordType::A, true).await;
+            let result = handler
+                .check_domain(&PreprocessedDomain::new("printer.local."), RecordType::A, true)
+                .await;
 
             assert!(result.rule_id.is_none());
             assert!(result.records.as_ref().is_some_and(Vec::is_empty));
@@ -1839,7 +1883,11 @@ mod tests {
             );
 
             let result = handler
-                .refresh_cache_entry("foo.localhost.", RecordType::AAAA, true)
+                .refresh_cache_entry(
+                    &PreprocessedDomain::new("foo.localhost."),
+                    RecordType::AAAA,
+                    true,
+                )
                 .await
                 .unwrap();
 

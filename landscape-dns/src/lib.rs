@@ -30,6 +30,7 @@ pub fn to_common_records(records: Vec<Record>) -> Vec<CommonRecord> {
 }
 
 pub(crate) mod connection;
+pub(crate) mod domain;
 
 pub mod error;
 pub mod listener;

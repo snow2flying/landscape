@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     convert_record_type,
+    domain::PreprocessedDomain,
     listener::{start_flow_dns_listener, DohListenerState},
     mdns::MdnsService,
     server::{
@@ -222,13 +223,8 @@ impl LandscapeDnsServer {
         let handler = entry
             .and_then(|entry| entry.runtime.load_full().map(|runtime| runtime.handler.clone()));
         if let Some(handler) = handler {
-            handler
-                .check_domain(
-                    &req.get_domain(),
-                    convert_record_type(req.record_type),
-                    req.apply_filter,
-                )
-                .await
+            let pd = PreprocessedDomain::new(&req.get_domain());
+            handler.check_domain(&pd, convert_record_type(req.record_type), req.apply_filter).await
         } else {
             CheckChainDnsResult::default()
         }
@@ -246,8 +242,9 @@ impl LandscapeDnsServer {
         let _refresh_guard = entry.refresh_lock.lock().await;
         let runtime = entry.runtime.load_full().ok_or(DnsCheckError::FlowNotFound(req.flow_id))?;
 
-        runtime.handler.invalidate_cache_entry(&domain, query_type).await;
-        Ok(runtime.handler.check_domain(&domain, query_type, req.apply_filter).await)
+        let pd = PreprocessedDomain::new(&domain);
+        runtime.handler.invalidate_cache_entry(pd.raw(), query_type).await;
+        Ok(runtime.handler.check_domain(&pd, query_type, req.apply_filter).await)
     }
 
     pub async fn refresh_domain_cache(
@@ -262,7 +259,8 @@ impl LandscapeDnsServer {
         let _refresh_guard = entry.refresh_lock.lock().await;
         let runtime = entry.runtime.load_full().ok_or(DnsCheckError::FlowNotFound(req.flow_id))?;
 
-        runtime.handler.refresh_cache_entry(&domain, query_type, req.apply_filter).await
+        let pd = PreprocessedDomain::new(&domain);
+        runtime.handler.refresh_cache_entry(&pd, query_type, req.apply_filter).await
     }
 
     async fn get_entry(&self, flow_id: u32) -> Option<Arc<FlowServerEntry>> {
