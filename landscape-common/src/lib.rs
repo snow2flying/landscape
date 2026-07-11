@@ -19,7 +19,6 @@ pub mod event;
 pub mod flow;
 
 pub mod global_const;
-pub mod hostname_registry;
 
 pub mod metric;
 pub mod network;

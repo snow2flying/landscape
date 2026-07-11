@@ -7,11 +7,11 @@ use landscape_common::{
     dns::error::DnsError,
     dns::{CacheRuntimeConfig, DohRuntimeConfig, FlowDnsDependencies},
     event::{dns::DnsEvent, DnsMetricMessage},
-    hostname_registry::HostnameRegistry,
     service::{
         controller::{ConfigController, FlowConfigController},
         WatchService,
     },
+    sys_service::hostname_registry::HostnameRegistry,
 };
 use landscape_dns::{
     prepare_system_dns,

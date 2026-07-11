@@ -57,7 +57,7 @@ use landscape_common::{
     config::RuntimeConfig,
     error::LdResult,
     event::hub::EventHub,
-    hostname_registry::HostnameRegistry,
+    sys_service::hostname_registry::HostnameRegistry,
     wan_service::ipv6_pd::IAPrefixMap,
     VERSION,
 };

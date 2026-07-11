@@ -42,8 +42,8 @@ use landscape_common::{
     dns::{DohRuntimeConfig, FlowDnsDesiredState, RuntimeDnsRule, RuntimeRedirectRule},
     event::DnsMetricMessage,
     flow::{DnsRuntimeMarkInfo, FlowMarkInfo},
-    hostname_registry::HostnameRegistry,
     metric::dns::{DnsMetric, DnsOutcome},
+    sys_service::hostname_registry::HostnameRegistry,
 };
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -61,7 +61,7 @@ pub struct DnsRequestHandler {
     runtime_config: Arc<ArcSwap<CacheRuntimeConfig>>,
     pub local_answer_provider: Option<Arc<dyn LocalDnsAnswerProvider>>,
     pub doh_advertise_provider: Option<Arc<dyn DohAdvertiseProvider>>,
-    hostname_registry: Arc<landscape_common::hostname_registry::HostnameRegistry>,
+    hostname_registry: Arc<landscape_common::sys_service::hostname_registry::HostnameRegistry>,
     // Startup DoH endpoint snapshot used for DDR advertisements. Advertised
     // domains are loaded live from `doh_advertise_provider`; port/path changes
     // require a process restart so advertisements stay consistent with listener.
@@ -76,7 +76,7 @@ impl DnsRequestHandler {
         msg_tx: MetricSenderState,
         local_answer_provider: Option<Arc<dyn LocalDnsAnswerProvider>>,
         doh_advertise_provider: Option<Arc<dyn DohAdvertiseProvider>>,
-        hostname_registry: Arc<landscape_common::hostname_registry::HostnameRegistry>,
+        hostname_registry: Arc<landscape_common::sys_service::hostname_registry::HostnameRegistry>,
         doh_runtime: Option<DohRuntimeConfig>,
     ) -> DnsRequestHandler {
         let FlowDnsDesiredState { dns_rules, redirect_rules, .. } = desired_state;
@@ -1292,9 +1292,10 @@ mod tests {
         )
     }
 
-    fn test_hostname_registry() -> Arc<landscape_common::hostname_registry::HostnameRegistry> {
-        landscape_common::hostname_registry::HostnameRegistry::new_for_test(
-            landscape_common::hostname_registry::HostnameRegistryConfig::default(),
+    fn test_hostname_registry(
+    ) -> Arc<landscape_common::sys_service::hostname_registry::HostnameRegistry> {
+        landscape_common::sys_service::hostname_registry::HostnameRegistry::new_for_test(
+            landscape_common::sys_service::hostname_registry::HostnameRegistryConfig::default(),
         )
     }
 
@@ -1482,8 +1483,8 @@ mod tests {
     #[test]
     fn resolve_arpa_reverse_returns_registered_lan_hostname() {
         run_async_test(async {
-            let registry = landscape_common::hostname_registry::HostnameRegistry::new(
-                landscape_common::hostname_registry::HostnameRegistryConfig::default(),
+            let registry = landscape_common::sys_service::hostname_registry::HostnameRegistry::new(
+                landscape_common::sys_service::hostname_registry::HostnameRegistryConfig::default(),
                 vec![("nas".to_string(), Ipv4Addr::new(192, 168, 1, 50))],
                 {
                     let (_tx, rx) = tokio::sync::broadcast::channel(8);
@@ -1525,8 +1526,8 @@ mod tests {
     fn resolve_arpa_reverse_ipv6_returns_registered_lan_hostname() {
         run_async_test(async {
             let ipv6 = Ipv6Addr::new(0xfd01, 0, 0, 0, 0, 0, 0, 99);
-            let registry = landscape_common::hostname_registry::HostnameRegistry::new(
-                landscape_common::hostname_registry::HostnameRegistryConfig::default(),
+            let registry = landscape_common::sys_service::hostname_registry::HostnameRegistry::new(
+                landscape_common::sys_service::hostname_registry::HostnameRegistryConfig::default(),
                 vec![("srv".to_string(), Ipv4Addr::new(192, 168, 1, 1))],
                 {
                     let (_tx, rx) = tokio::sync::broadcast::channel(8);
@@ -1567,8 +1568,8 @@ mod tests {
     fn resolve_forward_local_domain_aaaa_returns_registered_ipv6() {
         run_async_test(async {
             let ipv6 = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2);
-            let registry = landscape_common::hostname_registry::HostnameRegistry::new(
-                landscape_common::hostname_registry::HostnameRegistryConfig::default(),
+            let registry = landscape_common::sys_service::hostname_registry::HostnameRegistry::new(
+                landscape_common::sys_service::hostname_registry::HostnameRegistryConfig::default(),
                 vec![("dev".to_string(), Ipv4Addr::new(192, 168, 1, 100))],
                 {
                     let (_tx, rx) = tokio::sync::broadcast::channel(8);
@@ -1606,8 +1607,8 @@ mod tests {
     #[test]
     fn resolve_forward_local_domain_aaaa_returns_nxdomain_when_no_ipv6() {
         run_async_test(async {
-            let registry = landscape_common::hostname_registry::HostnameRegistry::new(
-                landscape_common::hostname_registry::HostnameRegistryConfig::default(),
+            let registry = landscape_common::sys_service::hostname_registry::HostnameRegistry::new(
+                landscape_common::sys_service::hostname_registry::HostnameRegistryConfig::default(),
                 vec![("dev".to_string(), Ipv4Addr::new(192, 168, 1, 100))],
                 {
                     let (_tx, rx) = tokio::sync::broadcast::channel(8);
