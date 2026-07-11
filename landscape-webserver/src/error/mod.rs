@@ -9,7 +9,7 @@ use landscape_common::config_service::enrolled_device::EnrolledDeviceError;
 use landscape_common::config_service::geo::{GeoIpError, GeoSiteError};
 use landscape_common::config_service::static_nat::error::StaticNatError;
 use landscape_common::ddns::DdnsError;
-use landscape_common::dns::check::DnsCheckError;
+use landscape_common::dns::error::DnsError;
 use landscape_common::dns::provider_profile::DnsProviderProfileError;
 use landscape_common::dns::redirect::DnsRedirectError;
 use landscape_common::dns::rule::DnsRuleError;
@@ -36,7 +36,7 @@ pub enum LandscapeApiError {
     #[error(transparent)]
     DnsRule(#[from] DnsRuleError),
     #[error(transparent)]
-    DnsCheck(#[from] DnsCheckError),
+    DnsCheck(#[from] DnsError),
     #[error(transparent)]
     DnsUpstream(#[from] DnsUpstreamError),
     #[error(transparent)]

@@ -6,7 +6,7 @@ use std::{
 };
 
 use arc_swap::{ArcSwap, ArcSwapOption};
-use landscape_common::dns::check::DnsCheckError;
+use landscape_common::dns::error::DnsError;
 use landscape_common::hostname_registry::HostnameRegistry;
 use landscape_common::{dns::FlowDnsDesiredState, event::DnsMetricMessage, service::WatchService};
 use tokio::sync::{mpsc, Mutex};
@@ -223,7 +223,12 @@ impl LandscapeDnsServer {
         let handler = entry
             .and_then(|entry| entry.runtime.load_full().map(|runtime| runtime.handler.clone()));
         if let Some(handler) = handler {
-            let pd = PreprocessedDomain::new(&req.get_domain());
+            let Ok(domain) = req.get_domain() else {
+                return CheckChainDnsResult::default();
+            };
+            let Ok(pd) = PreprocessedDomain::new(&domain) else {
+                return CheckChainDnsResult::default();
+            };
             handler.check_domain(&pd, convert_record_type(req.record_type), req.apply_filter).await
         } else {
             CheckChainDnsResult::default()
@@ -233,16 +238,15 @@ impl LandscapeDnsServer {
     pub async fn invalidate_domain_cache(
         &self,
         req: CheckDnsReq,
-    ) -> Result<CheckChainDnsResult, DnsCheckError> {
-        let domain = req.get_domain();
+    ) -> Result<CheckChainDnsResult, DnsError> {
+        let domain = req.get_domain()?;
         let query_type = convert_record_type(req.record_type);
-        let entry =
-            self.get_entry(req.flow_id).await.ok_or(DnsCheckError::FlowNotFound(req.flow_id))?;
+        let entry = self.get_entry(req.flow_id).await.ok_or(DnsError::FlowNotFound(req.flow_id))?;
 
         let _refresh_guard = entry.refresh_lock.lock().await;
-        let runtime = entry.runtime.load_full().ok_or(DnsCheckError::FlowNotFound(req.flow_id))?;
+        let runtime = entry.runtime.load_full().ok_or(DnsError::FlowNotFound(req.flow_id))?;
 
-        let pd = PreprocessedDomain::new(&domain);
+        let pd = PreprocessedDomain::new(&domain)?;
         runtime.handler.invalidate_cache_entry(pd.raw(), query_type).await;
         Ok(runtime.handler.check_domain(&pd, query_type, req.apply_filter).await)
     }
@@ -250,16 +254,15 @@ impl LandscapeDnsServer {
     pub async fn refresh_domain_cache(
         &self,
         req: CheckDnsReq,
-    ) -> Result<CheckChainDnsResult, DnsCheckError> {
-        let domain = req.get_domain();
+    ) -> Result<CheckChainDnsResult, DnsError> {
+        let domain = req.get_domain()?;
         let query_type = convert_record_type(req.record_type);
-        let entry =
-            self.get_entry(req.flow_id).await.ok_or(DnsCheckError::FlowNotFound(req.flow_id))?;
+        let entry = self.get_entry(req.flow_id).await.ok_or(DnsError::FlowNotFound(req.flow_id))?;
 
         let _refresh_guard = entry.refresh_lock.lock().await;
-        let runtime = entry.runtime.load_full().ok_or(DnsCheckError::FlowNotFound(req.flow_id))?;
+        let runtime = entry.runtime.load_full().ok_or(DnsError::FlowNotFound(req.flow_id))?;
 
-        let pd = PreprocessedDomain::new(&domain);
+        let pd = PreprocessedDomain::new(&domain)?;
         runtime.handler.refresh_cache_entry(&pd, query_type, req.apply_filter).await
     }
 

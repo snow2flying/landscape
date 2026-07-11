@@ -1,14 +1,25 @@
+use hickory_proto::rr::Name;
+use landscape_common::dns::error::DnsError;
+
 pub struct PreprocessedDomain {
     raw: String,
     name: String,
     labels: Vec<String>,
+    dns_name: Name,
 }
 
 impl PreprocessedDomain {
-    pub fn new(domain: &str) -> Self {
-        let name = domain.strip_suffix('.').unwrap_or(domain).to_ascii_lowercase();
+    pub fn new(fqdn: &str) -> Result<Self, DnsError> {
+        let name = fqdn.strip_suffix('.').unwrap_or(fqdn).to_ascii_lowercase();
         let labels: Vec<String> = name.split('.').map(String::from).collect();
-        Self { raw: domain.to_string(), name, labels }
+        let dns_name =
+            Name::from_utf8(&name).map_err(|_| DnsError::Invalid { domain: fqdn.to_string() })?;
+        let raw = format!("{}.", name);
+        Ok(Self { raw, name, labels, dns_name })
+    }
+
+    pub fn as_dns_name(&self) -> &Name {
+        &self.dns_name
     }
 
     pub fn raw(&self) -> &str {

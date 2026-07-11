@@ -1,29 +1,9 @@
-use landscape_macro::LdApiError;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::config::FlowId;
+use crate::dns::error::DnsError;
 use crate::dns::rule::{DNSRuntimeRule, FilterResult, LandscapeDnsRecordType};
-
-#[derive(thiserror::Error, Debug, LdApiError)]
-#[api_error(crate_path = "crate")]
-pub enum DnsCheckError {
-    #[error("DNS flow '{0}' not found")]
-    #[api_error(id = "dns_check.flow_not_found", status = 404)]
-    FlowNotFound(FlowId),
-
-    #[error("DNS cache refresh requires a matched upstream rule for '{0}'")]
-    #[api_error(id = "dns_check.refresh_requires_rule", status = 409)]
-    RefreshRequiresRule(String),
-
-    #[error("DNS cache refresh is not available for redirected domain '{0}'")]
-    #[api_error(id = "dns_check.refresh_redirected", status = 409)]
-    RefreshRedirected(String),
-
-    #[error("DNS cache refresh failed for '{0}'")]
-    #[api_error(id = "dns_check.refresh_failed", status = 502)]
-    RefreshFailed(String),
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -91,12 +71,11 @@ pub struct CheckDnsReq {
 }
 
 impl CheckDnsReq {
-    pub fn get_domain(&self) -> String {
-        let domain = self.domain.trim().trim_end_matches('.');
-        match idna::domain_to_ascii(domain) {
-            Ok(ascii) => format!("{}.", ascii),
-            Err(_) => format!("{}.", domain),
-        }
+    pub fn get_domain(&self) -> Result<String, DnsError> {
+        let no_dot = self.domain.trim().trim_end_matches('.');
+        let ascii = idna::domain_to_ascii(no_dot)
+            .map_err(|_| DnsError::Invalid { domain: self.domain.clone() })?;
+        Ok(format!("{}.", ascii.to_ascii_lowercase()))
     }
 }
 
@@ -114,7 +93,7 @@ mod tests {
             apply_filter: false,
         };
 
-        assert_eq!(req.get_domain(), "example.com.");
+        assert_eq!(req.get_domain().unwrap(), "example.com.");
     }
 
     #[test]
@@ -126,6 +105,6 @@ mod tests {
             apply_filter: false,
         };
 
-        assert_eq!(req.get_domain(), "example.com.");
+        assert_eq!(req.get_domain().unwrap(), "example.com.");
     }
 }
